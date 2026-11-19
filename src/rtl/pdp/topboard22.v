@@ -65,6 +65,8 @@ module topboard22 (
    output         irps_txd,
    input          irps_rxd,
    input          irps_hold,    // karabas: hold the transmitter of the console (wbc_uart tx_hold)
+   output [39:0]  img_req,      // karabas: the disks from image files (pdp_img): the request of the controller that holds the card
+   input  [19:0]  img_ans,      // karabas: the answer of pdp_img, to all the controllers
 
    // console panel
 	output	[2:0]		cons_dispreg_leds,
@@ -346,6 +348,7 @@ wire        rk11_dma_we;
 wire [15:0] rk11_dma_out;
 
 wire master_sdhc ;
+wire [36:0] rk_img, rl11_img, rh70_img, pr11_img, pp11_img;   // karabas: the image buses (sdspi_img)
 
 `ifdef RK_module
 
@@ -389,8 +392,9 @@ rk11 rkdisk (
    .sdmode(`RK_sdmode),           // режим ведущего-ведомого
    
 // Адрес массива дисков на карте
-   .start_offset({sw_bank_offset, sw_diskbank[1:0], 22'h0}),
-	.master_sdhc(master_sdhc)
+   .start_offset(27'd0),          // karabas: the units at 0 of the RK image (no banks)
+	.master_sdhc(master_sdhc),
+	.img_in(img_ans), .img_out(rk_img)
    ) ; 
 
 `else 
@@ -446,8 +450,9 @@ rl11 rldisk(
    .sdreq(rl11_sdreq),
    .sdack(rl11_sdack),
 
-   .start_offset({sw_bank_offset, sw_diskbank[3:2], 22'h9840}),
-	.slave_sdhc(master_sdhc)
+   .start_offset(27'd0),          // karabas: the RL image
+	.slave_sdhc(master_sdhc),
+	.img_in(img_ans), .img_out(rl11_img)
 ) ;
 
 wire [21:0] rh70_dma_adr ;
@@ -494,8 +499,9 @@ rh70 db_disk (
    .sdmode(1'b0),           // режим ведущего-ведомого
    
 // Адрес массива дисков на карте
-   .start_offset({sw_bank_offset, sw_diskbank[5:4], 22'h31908}),
-	.slave_sdhc(master_sdhc)
+   .start_offset(27'd0),          // karabas: the RP image
+	.slave_sdhc(master_sdhc),
+	.img_in(img_ans), .img_out(rh70_img)
 ) ;
 
 
@@ -559,8 +565,9 @@ pr11 paper_reader(
    .sdack(pr11_sdack),
    
 // Адрес массива дисков на карте
-   .start_offset({sw_bank_offset, sw_diskbank[7:6], 22'h31840}),
-	.slave_sdhc(master_sdhc)
+   .start_offset(27'd0),          // karabas: the tape image
+	.slave_sdhc(master_sdhc),
+	.img_in(img_ans), .img_out(pr11_img)
 ) ;
 
 pp11 paper_punch(
@@ -589,8 +596,9 @@ pp11 paper_punch(
    .sdack(pp11_sdack),
    
 // Адрес массива дисков на карте
-   .start_offset({sw_bank_offset, sw_diskbank[7:6], 22'h31840}),
-	.slave_sdhc(master_sdhc)
+   .start_offset(27'd0),          // karabas: the tape image
+	.slave_sdhc(master_sdhc),
+	.img_in(img_ans), .img_out(pp11_img)
 ) ;
 
 lp11 printer(
@@ -705,6 +713,18 @@ ODDR2(
 	.S(1'b0)
 ) ;
   
+
+//**********************************
+//* karabas: the image request of the controller that holds the card (pdp_img), its slot:
+//* 0 RK, 1 RL, 2 RP, 3 the paper tape (reader and punch)
+//**********************************
+assign img_req =
+			pp11_sdack ? { 3'd3, pp11_img } :
+			pr11_sdack ? { 3'd3, pr11_img } :
+			rh70_sdack ? { 3'd2, rh70_img } :
+			rl11_sdack ? { 3'd1, rl11_img } :
+			rk_sdack   ? { 3'd0, rk_img } :
+			             40'd0;
 
 //********************************************
 //* Светодиоды дисковой активности

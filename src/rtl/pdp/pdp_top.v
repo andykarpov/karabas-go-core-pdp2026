@@ -33,6 +33,8 @@ module pdp_top(
    output				irps_txd,
    input					irps_rxd,
    input					irps_hold,		// karabas: hold the transmitter of the console
+   output			[39:0] img_req,	// karabas: the disks from image files (pdp_img)
+   input			[19:0] img_ans,
 	
 	// TOY
 	output			[7:0]		rtc_a,
@@ -146,6 +148,7 @@ module pdp_top(
 		.irps_txd(irps_txd),
 		.irps_rxd(irps_rxd),
 		.irps_hold(irps_hold),
+		.img_req(img_req), .img_ans(img_ans),
 
 		.cons_dispreg_leds(cons_dispreg_leds),
 

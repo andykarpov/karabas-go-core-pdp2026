@@ -12,7 +12,9 @@
  lines, the DAC), clk_25 (640 x 480, the OSD, HDMI), clk_125 / clk_125_n (the serialiser), clk_10
  (the PDP-11 of the terminal), clk_sd (12.5 MHz, sdclock), clk_8 (FT_CLK_OUT, a DCM).
 
- SD2: the card slot of the FPGA, driven by the sdspi of the PDP-11 itself (not the MCU).
+ Disks: image files on the SD card of the MCU (SD1), one per controller (pdp_img on kg_l2_img;
+   slot 0 RK11, 1 RL11, 2 RH70 / RP06, 3 the paper tape of PC11), the units back to back at
+   unit * unit size as they were on SD2; the sdspi of each controller is sdspi_img. SD2 is not used.
  SRAM: the memory of the PDP-11; bootmon.rom (core.json roms, LD kind 0) is written into it while
  the PDP-11 is held in reset (sram.v loader port, a 16 bit word per two bytes).
  RTC: the TOY of the PDP-11 reads the DS1307 registers of kg_mcu2 (rtc_mode 1).
@@ -25,11 +27,11 @@
    tx_hold), both are taken out of the stream to the PDP-11.
    USB: transparent both ways; a full in fifo of the port holds the PDP-11 transmitter (one byte
    latched meanwhile), the bytes of the PC wait in the out fifo of the port and the USB fifo.
- Front panel LEDs (icons.v of upstream, OSD item Front panel, also while no card is in SD2).
+ Front panel LEDs (icons.v of upstream, OSD item Front panel).
 
  Soft switches (the "index" of the items in core.json, the numbers of soft_switches.v of upstream):
-   0 Reset   1 Halt / Run (CONT of upstream)   2 Slow CPU   3 SD2 offset (Skip)
-   4..7 RK / RL / RP / Tape (PC) bank   8 Colour   9 Front panel   10 Sound (On / Off)
+   0 Reset   1 Halt / Run (CONT of upstream)   2 Slow CPU   3..7 not used (the SD2 offset and
+   banks of upstream)   8 Colour   9 Front panel   10 Sound (On / Off)
    11 Console (Terminal / USB serial)
 */
 
@@ -222,16 +224,25 @@ wire ser_out_ready;
 reg ser_in_wr = 1'b0;
 reg [7:0] ser_in_data = 8'd0;
 
+// the disks (pdp_img): kg_l2_img of kg_mcu2
+wire [7:0] sdc_img_mounted, sdc_rd, sdc_wr;
+wire [63:0] sdc_img_size;
+wire [31:0] sdc_sector;
+wire sdc_busy, sdc_done, sdc_error, sdc_byte_in_strobe;
+wire [8:0] sdc_byte_addr;
+wire [7:0] sdc_byte_in_data, sdc_byte_out_data;
+
 kg_mcu2 #(
 	.SW_N(12),
 	.CS_FILTER(3),
 	.CAPS(16'h0000),     // (RTC bit 5 comes from ENABLE_RTC)
 	.ENABLE_OSD(1),
-	.ENABLE_IMG(0),
+	.ENABLE_IMG(1),      // the disks: image files on SD1 (pdp_img), slot 0 RK, 1 RL, 2 RP, 3 tape
+	.IMG_OUT_LATENCY(3), // sdspi_img: the buffer (1) and the byte register (1), then the sample
 	.ENABLE_RTC(1),
 	.ENABLE_AUX(1),      // DEBUG_*: the state of the console line (AT+KARABAS=debug:1)
 	.ENABLE_FT(1),
-	.ENABLE_SD2(0),      // SD2 belongs to the sdspi of the PDP-11
+	.ENABLE_SD2(0),      // SD2 is not used (the disks are image files)
 	.ENABLE_PORTS(4'b0001) // port 0: the core serial port (Console = USB serial)
 ) mcu (
 	.CLK(clk_50),
@@ -261,11 +272,11 @@ kg_mcu2 #(
 	.OSD_FG(osd_fg), .OSD_BG(osd_bg), .OSD_ALPHA(osd_alpha), .OSD_PX(osd_px), .OSD_PY(osd_py),
 	.OSD_PW(osd_pw), .OSD_PH(osd_ph), .OSD_PLACE(osd_place), .OSD_ZOOM(osd_zoom),
 
-	.SDC_IMG_MOUNTED(), .SDC_IMG_SIZE(), .SDC_RD(8'd0),
-	.SDC_WR(8'd0), .SDC_SECTOR(32'd0), .SDC_BUSY(), .SDC_DONE(),
-	.SDC_ERROR(), .SDC_SLOT(), .SDC_BYTE_IN_STROBE(),
-	.SDC_BYTE_ADDR(), .SDC_BYTE_IN_DATA(),
-	.SDC_BYTE_OUT_DATA(8'd0), .IMG_WP(), .IMG_PHYS_WR(), .IMG_PHYS(), .IMG_FLUSH(), .FDD_CHNG_WR(), .FDD_CHNG(),
+	.SDC_IMG_MOUNTED(sdc_img_mounted), .SDC_IMG_SIZE(sdc_img_size), .SDC_RD(sdc_rd),
+	.SDC_WR(sdc_wr), .SDC_SECTOR(sdc_sector), .SDC_BUSY(sdc_busy), .SDC_DONE(sdc_done),
+	.SDC_ERROR(sdc_error), .SDC_SLOT(), .SDC_BYTE_IN_STROBE(sdc_byte_in_strobe),
+	.SDC_BYTE_ADDR(sdc_byte_addr), .SDC_BYTE_IN_DATA(sdc_byte_in_data),
+	.SDC_BYTE_OUT_DATA(sdc_byte_out_data), .IMG_WP(), .IMG_PHYS_WR(), .IMG_PHYS(), .IMG_FLUSH(), .FDD_CHNG_WR(), .FDD_CHNG(),
 	.FDD_CHNG_REQ(1'b0), .FDD_CHNG_DS(2'd0),
 	.BK_MOUNT(1'b0), .BK_FLUSHED(1'b0), .BK_SLOT(3'd0), .BK_SIZE(32'd0), .BK_KIND(8'd0), .BK_RESULT(8'd0), .IMG_ACTIVE(),
 	.PORT_OUT_DATA(port_out_data), .PORT_OUT_WR(port_out_wr), .PORT_OUT_READY({ 3'b111, ser_out_ready }),
@@ -288,8 +299,8 @@ assign FT_SPI_MOSI = ft_spi_on ? ft_mosi : 1'b1;
 wire sw_reset = sw[0*8];
 wire sw_cont = sw[1*8];
 wire sw_slow = sw[2*8];
-wire [2:0] sw_bank_offset = sw[3*8 +: 3];
-wire [7:0] sw_bank = { sw[7*8 +: 2], sw[6*8 +: 2], sw[5*8 +: 2], sw[4*8 +: 2] };
+wire [2:0] sw_bank_offset = 3'd0;   // the banks of SD2: not used with image files
+wire [7:0] sw_bank = 8'd0;
 wire [1:0] sw_color = sw[8*8 +: 2];
 wire sw_leds = sw[9*8];
 wire [1:0] sw_sound = sw[10*8 +: 2];
@@ -437,6 +448,23 @@ assign pdp_hold = sw_console ? (usb_latch || port_in_full[0]) : (term_rts || ter
 // ------------------------------------------------------------------ the PDP-11
 
 wire [7:0] leds;
+// the disks of the PDP-11: one image file per controller (slots 0..3 of kg_l2_img)
+wire [39:0] img_req;
+wire [19:0] img_ans;
+wire img_active;
+pdp_img disks (
+	.clk(clk_50), .reset(areset), .img_req(img_req), .img_ans(img_ans),
+	.sdc_img_mounted(sdc_img_mounted), .sdc_img_size(sdc_img_size), .sdc_rd(sdc_rd), .sdc_wr(sdc_wr),
+	.sdc_sector(sdc_sector), .sdc_busy(sdc_busy), .sdc_done(sdc_done), .sdc_error(sdc_error),
+	.sdc_byte_in_strobe(sdc_byte_in_strobe), .sdc_byte_addr(sdc_byte_addr),
+	.sdc_byte_in_data(sdc_byte_in_data), .sdc_byte_out_data(sdc_byte_out_data), .active(img_active)
+);
+
+// SD2 is not used
+assign SD_CS_N = 1'b1;
+assign SD_CLK = 1'b0;
+assign SD_DI = 1'b1;
+
 pdp_top mainboard (
 	.clk50(clk_50),
 	.clk_p(clk_50),
@@ -452,13 +480,15 @@ pdp_top mainboard (
 	.MD(MD),
 	.MWR_N(MWR_N),
 	.MRD_N(MRD_N),
-	.sdcard_cs(SD_CS_N),
-	.sdcard_mosi(SD_DI),
-	.sdcard_sclk(SD_CLK),
-	.sdcard_miso(SD_DO),
+	.sdcard_cs(),
+	.sdcard_mosi(),
+	.sdcard_sclk(),
+	.sdcard_miso(1'b1),
 	.irps_txd(pdp_txd),
 	.irps_rxd(pdp_rxd),
 	.irps_hold(pdp_hold),
+	.img_req(img_req),
+	.img_ans(img_ans),
 	.rtc_a(rtc_a),
 	.rtc_di(rtc_do),
 	.leds(leds),
@@ -508,7 +538,7 @@ always @(posedge clk_25) begin
 end
 
 // the front panel LEDs of upstream (icons.v): counted from the starts of the sync pulses as the
-// old overlay.vhd did, shown with the Leds item or while no card is in SD2
+// old overlay.vhd did, shown with the Front panel item
 reg [10:0] hcnt = 11'd0, vcnt = 11'd0;
 reg hs_q = 1'b1, vs_q = 1'b1;
 always @(posedge clk_25) begin
@@ -526,11 +556,9 @@ end
 wire [23:0] led_rgb;
 wire led_visible;
 icons led_icons (.clk(clk_25), .hcnt(hcnt), .vcnt(vcnt), .leds(leds), .rgb_o(led_rgb), .visible(led_visible));
-reg sd_none = 1'b0, leds_on = 1'b0;
-always @(posedge clk_25) begin
-	sd_none <= SD_DET_N;
+reg leds_on = 1'b0;
+always @(posedge clk_25)
 	leds_on <= sw_leds;
-end
 
 // icons has one clock of latency: the video is delayed by one clock with it
 reg [23:0] vid_rgb = 24'd0;
@@ -539,7 +567,7 @@ reg [23:0] vt_rgb_d = 24'd0;
 reg vt_hs_d = 1'b1, vt_vs_d = 1'b1, vt_de_d = 1'b0;
 always @(posedge clk_25) begin
 	vt_rgb_d <= vt_rgb; vt_hs_d <= vt_hs_p; vt_vs_d <= vt_vs_p; vt_de_d <= vt_de_p;
-	vid_rgb <= ((leds_on || sd_none) && led_visible) ? led_rgb : vt_rgb_d;
+	vid_rgb <= (leds_on && led_visible) ? led_rgb : vt_rgb_d;
 	vid_hs <= !vt_hs_d;     // positive inside, negative to HDMI
 	vid_vs <= !vt_vs_d;
 	vid_de <= vt_de_d;
