@@ -201,8 +201,10 @@ wire areset, areset_25;
 kg_sync #(.W(1), .STAGES(2), .INIT(1'b1)) sync_areset (.clk(clk_50), .d(areset_async), .q(areset));
 kg_sync #(.W(1), .STAGES(2), .INIT(1'b1)) sync_areset_25 (.clk(clk_25), .d(areset_async), .q(areset_25));
 
-// the pixel clock of the VGA DAC
-ODDR2 oddr_v_clk (.Q(V_CLK), .C0(clk_25), .C1(~clk_25), .CE(1'b1), .D0(1'b1), .D1(1'b0), .R(1'b0), .S(1'b0));
+// the pixel clock of the VGA DAC: the DAC takes the pixel on the rising V_CLK, so V_CLK is the
+// inverted clk_25 (the middle of the pixel). RGB leave their IOB flip-flops on the rising clk_25:
+// a V_CLK in phase latched the DAC just as the data changed (red a pixel late on Go).
+ODDR2 oddr_v_clk (.Q(V_CLK), .C0(clk_25), .C1(~clk_25), .CE(1'b1), .D0(1'b0), .D1(1'b1), .R(1'b0), .S(1'b0));
 
 // ------------------------------------------------------------------ MCU
 

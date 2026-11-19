@@ -261,8 +261,10 @@ def go(s):
             "assign FDC_WDATA = 1'b0;\nassign FDC_WGATE = 1'b0;\nassign FDC_SIDE_N = 1'b0;\n", "unused Go")
     s = sub(s, "// the clock of the FT812 (every core must drive it on Mini / Mini G)\n"
                "ODDR2 oddr_ft_clk (.Q(FT_CLK_OUT), .C0(clk_8), .C1(~clk_8), .CE(1'b1), .D0(1'b1), .D1(1'b0), .R(1'b0), .S(1'b0));\n",
-            "// the pixel clock of the VGA DAC\n"
-            "ODDR2 oddr_v_clk (.Q(V_CLK), .C0(clk_25), .C1(~clk_25), .CE(1'b1), .D0(1'b1), .D1(1'b0), .R(1'b0), .S(1'b0));\n",
+            "// the pixel clock of the VGA DAC: the DAC takes the pixel on the rising V_CLK, so V_CLK is the\n"
+            "// inverted clk_25 (the middle of the pixel). RGB leave their IOB flip-flops on the rising clk_25:\n"
+            "// a V_CLK in phase latched the DAC just as the data changed (red a pixel late on Go).\n"
+            "ODDR2 oddr_v_clk (.Q(V_CLK), .C0(clk_25), .C1(~clk_25), .CE(1'b1), .D0(1'b0), .D1(1'b1), .R(1'b0), .S(1'b0));\n",
             "V_CLK")
     s = sub(s, "assign MCU_IO[1] = mcu_int;\nassign MCU_IO[0] = 1'bz;\nassign MCU_IO[5:2] = 4'bzzzz;\n",
             "assign MCU_SPI_IO[0] = mcu_int;   // INT of link v2 on N9 (IO1 of the firmware)\nassign MCU_SPI_IO[1] = 1'bz;\n", "MCU_IO")
