@@ -11,15 +11,16 @@ XIL = source $(ISE_SETTINGS) > /dev/null;
 prj_src = $(shell sed -n 's/^[a-z]* work "\(.*\)"/\1/p' $(1) 2>/dev/null)
 
 PART = xc6slx25-ftg256-2
-BOARDS = minig
+BOARDS = go mini minig
 KG = pdp2026.kg
 JSON = core.json
 
-# map / par options (cost table 2 by default, the rule of all the cores)
-MAP_T_go ?= 2
-MAP_T_mini ?= 2
-MAP_T_minig ?= 2
-MAP = -logic_opt off -ol high -xe n -xt 3 -register_duplication off -r 4 -global_opt off -mt 2 -detail -ir off -pr b -lc auto -power off
+# map / par options: two PDP-11s fill the LX25 (99 % slices on Mini G), so the options of upstream
+# (cost table 1, -xt 0) with LUT combining for area; cost table 2 (the rule of the cores) hung in par
+MAP_T_go ?= 1
+MAP_T_mini ?= 1
+MAP_T_minig ?= 1
+MAP = -logic_opt off -ol high -xe n -xt 0 -register_duplication off -r 4 -global_opt off -mt 2 -detail -ir off -pr b -lc area -power off
 PAR = -ol high -xe c -mt 4
 
 INCLUDES = $(wildcard ../modules/rtl/mcu/*.vh)
