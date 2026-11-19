@@ -64,6 +64,7 @@ module topboard22 (
    // дополнительный UART 
    output         irps_txd,
    input          irps_rxd,
+   input          irps_hold,    // karabas: hold the transmitter of the console (wbc_uart tx_hold)
 
    // console panel
 	output	[2:0]		cons_dispreg_leds,
@@ -320,6 +321,7 @@ wbc_uart #(.REFCLK(`clkref)) uart1
 
    .txd(irps_txd),
    .rxd(irps_rxd),
+   .tx_hold(irps_hold),
 
    .tx_irq_o(uart1_tx_irq),
    .tx_iack_i(uart1_tx_iack),

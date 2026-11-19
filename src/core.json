@@ -1,0 +1,166 @@
+{
+    "id": "pdp2026",
+    "name": "PDP-11/70",
+    "build": "26111931",
+    "visible": true,
+    "type": "osd",
+    "order": 2,
+    "eeprom_bank": 0,
+    "rtc_mode": 1,
+    "roms": [
+        {
+            "filename": "rom/bootmon.rom",
+            "address": 49152
+        }
+    ],
+    "boards": {
+        "minig": {
+            "link": 2,
+            "build": "26111931",
+            "bitstream": "karabas_minig.bin"
+        }
+    },
+    "osd": [
+        {
+            "type": "T",
+            "name": "Reset",
+            "options": null,
+            "default": 0,
+            "hotkey": "F12",
+            "index": 0
+        },
+        {
+            "type": "T",
+            "name": "Halt / Run",
+            "options": null,
+            "default": 0,
+            "hotkey": "F11",
+            "index": 1
+        },
+        {
+            "type": "S",
+            "name": "Console",
+            "options": [
+                "Terminal",
+                "USB serial"
+            ],
+            "default": 0,
+            "index": 11
+        },
+        {
+            "type": "S",
+            "name": "Colour",
+            "options": [
+                "Amber",
+                "Green",
+                "White"
+            ],
+            "default": 0,
+            "index": 8
+        },
+        {
+            "type": "S",
+            "name": "Sound",
+            "options": [
+                "On",
+                "Off"
+            ],
+            "default": 0,
+            "index": 10
+        },
+        {
+            "type": "N",
+            "name": "Front panel",
+            "options": [
+                "Off",
+                "On"
+            ],
+            "default": 0,
+            "index": 9
+        },
+        {
+            "type": "N",
+            "name": "Slow CPU",
+            "options": [
+                "Off",
+                "On"
+            ],
+            "default": 0,
+            "index": 2
+        },
+        {
+            "type": "M",
+            "name": "Disks",
+            "open": 1
+        },
+        {
+            "type": "S",
+            "name": "SD2 offset",
+            "options": [
+                "0",
+                "8 GB",
+                "16 GB",
+                "24 GB",
+                "32 GB",
+                "40 GB",
+                "48 GB",
+                "56 GB"
+            ],
+            "default": 0,
+            "index": 3,
+            "page": 1
+        },
+        {
+            "type": "S",
+            "name": "RK bank",
+            "options": [
+                "Bank 0",
+                "Bank 1",
+                "Bank 2",
+                "Bank 3"
+            ],
+            "default": 0,
+            "index": 4,
+            "page": 1
+        },
+        {
+            "type": "S",
+            "name": "RL bank",
+            "options": [
+                "Bank 0",
+                "Bank 1",
+                "Bank 2",
+                "Bank 3"
+            ],
+            "default": 0,
+            "index": 5,
+            "page": 1
+        },
+        {
+            "type": "S",
+            "name": "RP bank",
+            "options": [
+                "Bank 0",
+                "Bank 1",
+                "Bank 2",
+                "Bank 3"
+            ],
+            "default": 0,
+            "index": 6,
+            "page": 1
+        },
+        {
+            "type": "S",
+            "name": "Tape bank",
+            "options": [
+                "Bank 0",
+                "Bank 1",
+                "Bank 2",
+                "Bank 3"
+            ],
+            "default": 0,
+            "index": 7,
+            "page": 1
+        }
+    ]
+}

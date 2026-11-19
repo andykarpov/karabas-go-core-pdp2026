@@ -32,6 +32,7 @@ module pdp_top(
    // дополнительный UART 
    output				irps_txd,
    input					irps_rxd,
+   input					irps_hold,		// karabas: hold the transmitter of the console
 	
 	// TOY
 	output			[7:0]		rtc_a,
@@ -144,6 +145,7 @@ module pdp_top(
 		// дополнительный UART 
 		.irps_txd(irps_txd),
 		.irps_rxd(irps_rxd),
+		.irps_hold(irps_hold),
 
 		.cons_dispreg_leds(cons_dispreg_leds),
 

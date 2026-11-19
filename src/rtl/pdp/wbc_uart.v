@@ -24,6 +24,7 @@ module wbc_uart #(parameter REFCLK=100000000)
                                     //
    output               txd,        // output serial data (txd))
    input                rxd,        // input serial data (rxd)
+   input                tx_hold,    // karabas: 1 = do not start the next frame (the line is held: XOFF / rts of the terminal, a full fifo of the USB port)
                                     //
    output reg           tx_irq_o,   // tx interrupt request
    input                tx_iack_i,   //
@@ -239,7 +240,8 @@ always @(posedge wb_clk_i or posedge wb_rst_i) begin
 
          // Старт очередного кадра
          if (~tx_rdy & // бит готовности снят
-            ~tx_busy   // процесс вывода еще не начат
+            ~tx_busy & // процесс вывода еще не начат
+            ~tx_hold   // karabas: the line is not held
          ) begin 
             
             tx_busy    <= 1'b1;  // поднимаем признак обработки кадра

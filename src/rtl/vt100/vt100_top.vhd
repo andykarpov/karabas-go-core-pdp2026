@@ -24,6 +24,7 @@ use work.pdp2011.all;
 entity vt100_top is
    port(
       vgao : out std_logic ;
+      vgai : out std_logic ;  -- karabas: the half intensity pixel (vga_ht: normal text, vgao: bold)
       vgah : out std_logic;
       vgav : out std_logic;
 		vgaclk : out std_logic;
@@ -39,6 +40,7 @@ entity vt100_top is
 
       tx : out std_logic;
       rx : in std_logic;
+      rts : out std_logic;    -- karabas: 1 = stop sending (the receive silo of kl11 has more than 11 bytes)
       resetbtn : in std_logic
    );
 end vt100_top;
@@ -110,7 +112,12 @@ begin
 
       rx => rx,
       tx => tx,
+      rts => rts,
 		bps => 115200,
+		-- karabas: the 16 byte receive silo of kl11 (rtscts 1; CTS is not used by kl11): without
+		-- it the receiver shifts the bits straight into the buffer the PDP-11 reads, and a frame
+		-- right after the previous one (SCM, BASIC at 115200) mixes two characters
+		rtscts => 1,
 
       ps2k_upd => ps2k_upd,
       ps2k_dat => ps2k_dat,
@@ -130,6 +137,7 @@ begin
    reset <= (not resetbtn);
 
 	vgao <= '1' when vga_fb = '1' else '0' ;
+	vgai <= '1' when vga_ht = '1' else '0' ;
    vgav <= vga_vsync;
    vgah <= vga_hsync;
 	
