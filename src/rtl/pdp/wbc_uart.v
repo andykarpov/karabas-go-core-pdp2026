@@ -40,9 +40,11 @@ module wbc_uart #(parameter REFCLK=100000000)
 
 reg            reply;
 wire  [63:0]   add_arg;
-reg   [16:0]   add_reg;
-reg   [15:0]   baud_div;
-reg            baud_x16;
+// karabas: the baud generator and the frame in flight are not reset by wb_rst_i (the RESET
+// instruction): a cut frame made the terminal lose the bit sync for the banner of bootmon
+reg   [16:0]   add_reg = 17'h00000;
+reg   [15:0]   baud_div = 16'h0000;
+reg            baud_x16 = 1'b0;
 wire           baud_ref;
 reg   [1:0]    rx_rdata_reg;
 
@@ -53,9 +55,9 @@ wire           tx_csr_wstb, tx_dat_wstb;
 wire           tx_par;
 wire  [15:0]   tx_csr;
 reg   [7:0]    tx_dat;
-reg   [9:0]    tx_shr;
-reg   [7:0]    tx_bcnt;
-reg            tx_busy;
+reg   [9:0]    tx_shr = 10'o1777;
+reg   [7:0]    tx_bcnt = 8'b00000000;
+reg            tx_busy = 1'b0;
 reg            tx_csr_ie, tx_rdy, tx_csr_tst, tx_csr_brk;
 
 wire           rx_rdata;
@@ -74,25 +76,16 @@ assign   baud_ref = add_reg[16];
 //
 // Phase accumulator to generate 921600 * 16 Hz reference clock strobe
 //
-always @(posedge wb_clk_i or posedge wb_rst_i) begin
-   if (wb_rst_i) add_reg <= 17'h00000;
-   else          add_reg <= {1'b0, add_reg[15:0]} + add_arg[16:0];
-end
+always @(posedge wb_clk_i)   // karabas: no reset
+   add_reg <= {1'b0, add_reg[15:0]} + add_arg[16:0];
 //
 // Baud rate x16 generator
 //
-always @(posedge wb_clk_i or posedge wb_rst_i) begin
-   if (wb_rst_i)  begin
-      baud_div <= 16'h0000;
-      baud_x16 <= 1'b0;
-   end
-   else begin
-      if (baud_ref)
-         if (baud_div == cfg_bdiv)  baud_div <= 16'h0000;
-         else                       baud_div <= baud_div + 16'h0001;
-      baud_x16 <= baud_ref & (baud_div == 16'h0000);
-   end
-
+always @(posedge wb_clk_i) begin   // karabas: no reset
+   if (baud_ref)
+      if (baud_div == cfg_bdiv)  baud_div <= 16'h0000;
+      else                       baud_div <= baud_div + 16'h0001;
+   baud_x16 <= baud_ref & (baud_div == 16'h0000);
 end
 
 //______________________________________________________________________________
@@ -211,21 +204,22 @@ assign txd = tx_shr[0]
                   & ~tx_csr_brk;  // сигнал break притягивает выход к 0
 
 // блок вывода данных                  
-always @(posedge wb_clk_i or posedge wb_rst_i) begin
+// karabas: wb_rst_i clears the buffer and the ready bit only (a byte not started yet is dropped,
+// as before); the frame already on the line is sent to its end, no new frame starts during the reset
+always @(posedge wb_clk_i) begin
    if (wb_rst_i)   begin
       // сброс
       tx_rdy <= 1'b1;
-      tx_shr  <= 10'o1777;    // сдвиговый регистр заполняем 1
-      tx_busy <= 1'b0;
-      tx_bcnt <= 8'b00000000;
       tx_dat  <= 8'b00000000;
    end
-   else  begin
+   else begin
       // запись буферного регистра передатчика
       if (tx_dat_wstb)  begin
          tx_rdy <= 1'b0;            // снимаем готовность передатчика
          tx_dat <= wb_dat_i[7:0];   // получаем байт в буфер
       end
+   end
+   begin
       // обработка фронтов кадрового синхросигнала UART
       if (baud_x16) begin
          // если производится вывод кадра
@@ -241,7 +235,8 @@ always @(posedge wb_clk_i or posedge wb_rst_i) begin
          // Старт очередного кадра
          if (~tx_rdy & // бит готовности снят
             ~tx_busy & // процесс вывода еще не начат
-            ~tx_hold   // karabas: the line is not held
+            ~tx_hold & // karabas: the line is not held
+            ~wb_rst_i  // karabas: not during a reset
          ) begin 
             
             tx_busy    <= 1'b1;  // поднимаем признак обработки кадра
