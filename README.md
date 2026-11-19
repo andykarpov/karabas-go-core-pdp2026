@@ -145,6 +145,16 @@ lower case does not matter.
 | `D 123456` Enter | write 123456 at the address; the next `D` writes the next word |
 | `S` Enter | reset and start at the address |
 
+A PDP-11 word is 16 bits: numbers up to 177777 (higher digits are dropped), word addresses are
+even. Example:
+
+```
+$L 1000
+$D 123456
+$L 1000
+$E 001000 123456
+```
+
 The characters are read in pairs: a stray Enter before a command shifts the pair and the console
 answers with a new `$`. Just type the command again.
 
