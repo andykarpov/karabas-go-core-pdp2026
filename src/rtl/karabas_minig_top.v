@@ -25,11 +25,12 @@
    tx_hold), both are taken out of the stream to the PDP-11.
    USB: transparent both ways; a full in fifo of the port holds the PDP-11 transmitter (one byte
    latched meanwhile), the bytes of the PC wait in the out fifo of the port and the USB fifo.
- Front panel LEDs (icons.v of upstream, OSD item Leds, also while no card is in SD2).
+ Front panel LEDs (icons.v of upstream, OSD item Front panel, also while no card is in SD2).
 
- Soft switches (the index of the item in the osd of core.json, as soft_switches.v of upstream):
-   0 RESET   1 CONT.   2 Slow   3 Skip (bank offset)   4..7 RK / RL / RP / PC bank   8 Color
-   9 Leds   10 Sound (Audio-out / Off)   11 Console (Terminal / USB serial)
+ Soft switches (the "index" of the items in core.json, the numbers of soft_switches.v of upstream):
+   0 Reset   1 Halt / Run (CONT of upstream)   2 Slow CPU   3 SD2 offset (Skip)
+   4..7 RK / RL / RP / Tape (PC) bank   8 Colour   9 Front panel   10 Sound (On / Off)
+   11 Console (Terminal / USB serial)
 */
 
 module karabas_minig_top (

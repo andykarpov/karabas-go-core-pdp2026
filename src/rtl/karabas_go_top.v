@@ -1,338 +1,625 @@
 `timescale 1ns / 1ps
-/*-------------------------------------------------------------------------------------------------------------------
--- 
--- 
--- #       #######                                                 #                                               
--- #                                                               #                                               
--- #                                                               #                                               
--- ############### ############### ############### ############### ############### ############### ############### 
--- #             #               # #                             # #             #               # #               
--- #             # ############### #               ############### #             # ############### ############### 
--- #             # #             # #               #             # #             # #             #               # 
--- #             # ############### #               ############### ############### ############### ############### 
---                                                                                                                 
---         ####### ####### ####### #######                                         ############### ############### 
---                                                                                 #               #             # 
---                                                                                 #   ########### #             # 
---                                                                                 #             # #             # 
--- https://github.com/andykarpov/karabas-go                                        ############### ############### 
---
--- FPGA pdp-11/70 core for Karabas-Go
---
--- @author Pavel Tsybulin, 2026
--- @author Andy Karpov <andy.karpov@gmail.com>
--- EU, 2026
-------------------------------------------------------------------------------------------------------------------*/
+`default_nettype wire
 
-module karabas_go_top(
-	input 				CLK_50MHZ,
-	
-	//--------- SRAM ------------------
-	output	[20:0]	MA,
-	inout		[15:0]	MD,
-	output	[1:0]		MWR_N,
-	output	[1:0]		MRD_N,
+/*
+ PDP-11/70 core for Karabas Go (VGA, PCM5102). Made by tools/mktops.py from
+ karabas_minig_top.v (do not edit: change that one and run it): the same except the pins, the MCU
+ link (MCU_SCK not on a clock pin) and the video: 24 bit RGB to the VGA DAC with its pixel clock on
+ V_CLK (clk_25), the FT812 off that bus (FT_OE_N = 1), no HDMI. The floppy connector is not used
+ (its outputs 0).
+ The PDP-11/70 of Pavel Tsybulin's
+ pdp2026 (pdp_top: the pdp2011 CPU of Sytse van Slooten in the DVK-FPGA board of upstream, RK / RL /
+ RP disks on the second SD card, TOY clock, M9312 boot ROM, bootmon in the SRAM), its VT100 console
+ terminal, and the board glue of karabas-go-modules (MCU link v2, kg_mcu2). Upstream:
+ tsybulin/karabas-go-core-pdp2026; the karabas changes are marked karabas: in its sources.
 
-	//--------- SD2 ------------------
-	output				SD_CS_N,
-	output				SD_CLK,
-	inout					SD_DI,
-	inout					SD_DO,
-	input					SD_DET_N,
+ Clocks (pdp_clocks): clk_50 (the PDP-11 = clk_p of upstream, the SRAM, the MCU link, the serial
+ lines, the DAC), clk_25 (640 x 480, the OSD, HDMI), clk_125 / clk_125_n (the serialiser), clk_10
+ (the PDP-11 of the terminal), clk_sd (12.5 MHz, sdclock), clk_8 (FT_CLK_OUT, a DCM).
 
-	//---------- VGA -----------------
-	output	[7:0] 	VGA_R,
-	output	[7:0] 	VGA_G,
-	output	[7:0] 	VGA_B,
-	output				VGA_HS,
-	output				VGA_VS,
-	output				V_CLK,
+ SD2: the card slot of the FPGA, driven by the sdspi of the PDP-11 itself (not the MCU).
+ SRAM: the memory of the PDP-11; bootmon.rom (core.json roms, LD kind 0) is written into it while
+ the PDP-11 is held in reset (sram.v loader port, a 16 bit word per two bytes).
+ RTC: the TOY of the PDP-11 reads the DS1307 registers of kg_mcu2 (rtc_mode 1).
 
-	//---------- VDAC2 -----------------
-	output				FT_OE_N,
+ Console (OSD item Console, switch 11): the console line of the PDP-11 (irps, 115200 8N1) to the
+   built-in VT100 terminal (0) or to the core serial port of the board (1: kg_mcu2 port 0 = CDC 1,
+   Linux /dev/serial/by-id/usb-Karabas_Go_*-if02).
+   Terminal: XON / XOFF of the terminal are done in the line (the vt10x firmware drops characters
+   while it scrolls): XOFF / rts of the terminal hold the transmitter of the PDP-11 (wbc_uart
+   tx_hold), both are taken out of the stream to the PDP-11.
+   USB: transparent both ways; a full in fifo of the port holds the PDP-11 transmitter (one byte
+   latched meanwhile), the bytes of the PC wait in the out fifo of the port and the USB fifo.
+ Front panel LEDs (icons.v of upstream, OSD item Front panel, also while no card is in SD2).
 
-	//---------------------------	
-	output reg			BEEPER,
+ Soft switches (the "index" of the items in core.json, the numbers of soft_switches.v of upstream):
+   0 Reset   1 Halt / Run (CONT of upstream)   2 Slow CPU   3 SD2 offset (Skip)
+   4..7 RK / RL / RP / Tape (PC) bank   8 Colour   9 Front panel   10 Sound (On / Off)
+   11 Console (Terminal / USB serial)
+*/
 
-	//---------- DAC -----------------
-	output				DAC_LRCK,
-	output				DAC_DAT,
-	output				DAC_BCK,
-	output				DAC_MUTE,
+module karabas_go_top (
+	input wire CLK_50MHZ,
 
-	//--------- MCU ------------------
-	input					MCU_CS_N,
-	input					MCU_SCK,
-	inout					MCU_MOSI,
-	output				MCU_MISO
-) ;
+	inout wire UART_RX,
+	inout wire UART_TX,
+	inout wire UART_CTS,
+	inout wire ESP_RESET_N,
+	inout wire ESP_BOOT_N,
 
-	assign DAC_MUTE		= 1'b1 ; // _N, Unmuted
-	
-	wire clk10, clkready, clk_p, clk_n, sdclock ;
-	
-	pll pll_top(
-		.inclk0(CLK_50MHZ),
-		.areset(1'b0),
-		.locked(clkready),
-		.c0(clk10), 	// 10MHz VT100
-		.c1(clk_p),		// 50MHz CPU
-		.c2(clk_n),		// 50Mhz CPU 180deg
-		.c3(sdclock)	//	12.5Mhz SD Card
-	) ;
-	
-	wire areset = ~clkready ;
+	output wire [20:0] MA,
+	inout wire [15:0] MD,
+	output wire [1:0] MWR_N,
+	output wire [1:0] MRD_N,
 
-	// mouse / cursor
-	wire [7:0] ms_x, ms_y, cursor_x, cursor_y ;
-	wire [3:0] ms_z, cursor_z ;
-	wire [2:0] ms_b, cursor_b ;
-	wire ms_upd ;
-	
-	// kbd
-	wire [7:0] hid_kb_status, hid_kb_dat0, hid_kb_dat1, hid_kb_dat2 ;
-	wire [7:0] hid_kb_dat3, hid_kb_dat4, hid_kb_dat5, ps2_scancode ;
-	wire ps2_scancode_upd ;
-	
-	// joy
-	wire [12:0] joy_l, joy_r ;
-	
-	// hw buttons
-	wire [1:0] hw_btn ;
-	
-	// soft switches
-	wire sw_reset, sw_cont, sw_slow, sw_leds ;
-	wire [1:0] sw_color, sw_sound ;
-	wire [7:0] sw_bank ;
-	wire [2:0] sw_bank_offset ;
-	
-	// RTC
-	wire [7:0] rtc_addr, rtc_di, rtc_do ;
-	wire rtc_wr, rtc_rd ;
-	
-	// UART
-	wire [7:0] uart_rx_data, uart_rx_idx, uart_tx_data, uart_dlm, uart_dll ;
-	wire uart_dll_wr, uart_dlm_wr ;
-	wire uart_tx_mode = 1'b1 ;
-	reg  uart_tx_wr = 1'b0 ;
-	
-	// ROM Loader
-	wire loader_act, loader_wr ;
-	wire [21:1] loader_addr ;
-	wire [15:0] loader_data ;
-	
-	// OSD cmd
-	wire [15:0] softsw_command, osd_command ;
-	
-	wire mcu_busy ;
-	
-	// LEDS
-	wire [7:0] leds ;
-	
-	// DEBUG
-	wire [15:0] debug_addr ;
-	wire [15:0] debug_data ;
-	
-	mcu mcu(
-		.CLK(clk_p),
-		.N_RESET(~areset),
+	output wire [1:0] SDR_BA,
+	output wire [12:0] SDR_A,
+	output wire SDR_CLK,
+	output wire [1:0] SDR_DQM,
+	output wire SDR_WE_N,
+	output wire SDR_CAS_N,
+	output wire SDR_RAS_N,
+	inout wire [15:0] SDR_DQ,
 
-		.MCU_MOSI(MCU_MOSI),
-		.MCU_MISO(MCU_MISO),
-		.MCU_SCK(MCU_SCK),
-		.MCU_SS(MCU_CS_N),
+	output wire SD_CS_N,
+	output wire SD_CLK,
+	output wire SD_DI,
+	input wire SD_DO,
+	input wire SD_DET_N,
 
-		.MS_X(ms_x),
-		.MS_Y(ms_y),
-		.MS_Z(ms_z),
-		.MS_B(ms_b),
-		.MS_UPD(ms_upd),
+	output wire [7:0] VGA_R,
+	output wire [7:0] VGA_G,
+	output wire [7:0] VGA_B,
+	output wire VGA_HS,
+	output wire VGA_VS,
+	output wire V_CLK,
 
-		.KB_STATUS(hid_kb_status),
-		.KB_DAT0(hid_kb_dat0),
-		.KB_DAT1(hid_kb_dat1),
-		.KB_DAT2(hid_kb_dat2),
-		.KB_DAT3(hid_kb_dat3),
-		.KB_DAT4(hid_kb_dat4),
-		.KB_DAT5(hid_kb_dat5),
+	output wire FT_SPI_CS_N,
+	output wire FT_SPI_SCK,
+	input wire FT_SPI_MISO,
+	output wire FT_SPI_MOSI,
+	input wire FT_INT_N,
+	input wire FT_CLK,
+	output wire FT_OE_N,
 
-		.KB_SCANCODE(ps2_scancode),
-		.KB_SCANCODE_UPD(ps2_scancode_upd),
+	output wire [2:0] WA,
+	output wire [1:0] WCS_N,
+	output wire WRD_N,
+	output wire WWR_N,
+	output wire WRESET_N,
+	inout wire [15:0] WD,
 
-		.JOY_L(joy_l),
-		.JOY_R(joy_r),
+	input wire FDC_INDEX,
+	output wire [1:0] FDC_DRIVE,
+	output wire FDC_MOTOR,
+	output wire FDC_DIR,
+	output wire FDC_STEP,
+	output wire FDC_WDATA,
+	output wire FDC_WGATE,
+	input wire FDC_TR00,
+	input wire FDC_WPRT,
+	input wire FDC_RDATA,
+	output wire FDC_SIDE_N,
 
-		.BTNS(hw_btn),
+	output wire TAPE_OUT,
+	input wire TAPE_IN,
+	output wire BEEPER,
 
-		.RTC_A(rtc_addr),
-		.RTC_DI(rtc_di),
-		.RTC_DO(rtc_do),
-		.RTC_CS(1'b1),
-		.RTC_WR_N(~rtc_wr),
+	output wire DAC_LRCK,
+	output wire DAC_DAT,
+	output wire DAC_BCK,
+	output wire DAC_MUTE,
 
-		.UART_RX_DATA(uart_rx_data),
-		.UART_RX_IDX(uart_rx_idx),	 
-		.UART_TX_DATA(uart_tx_data),
-		.UART_TX_WR(uart_tx_wr),
-		.UART_TX_MODE(uart_tx_mode),
-		.UART_DLL(uart_dll),
-		.UART_DLM(uart_dlm),
-		.UART_DLL_WR(uart_dll_wr),
-		.UART_DLM_WR(uart_dlm_wr),
+	input wire MCU_CS_N,
+	input wire MCU_SCK,
+	inout wire MCU_MOSI,
+	output wire MCU_MISO,
+	input wire MCU_SPI_FT_CS_N,
+	input wire MCU_SPI_SD2_CS_N,
+	inout wire [1:0] MCU_SPI_IO, // [0] INT of link v2 (firmware IO1, GPIO2), [1] unused (IO0, GPIO14)
 
-		.ROMLOADER_ACTIVE(loader_act),
-		.ROMLOAD_ADDR(loader_addr),
-		.ROMLOAD_DATA(loader_data),
-		.ROMLOAD_WR(loader_wr),
+	output wire MIDI_TX,
+	output wire MIDI_CLK,
+	output wire MIDI_RESET_N,
 
-		.SOFTSW_COMMAND(softsw_command),	
-		.OSD_COMMAND(osd_command),
+	output wire FLASH_CS_N,
+	input wire FLASH_DO,
+	output wire FLASH_DI,
+	output wire FLASH_SCK,
+	output wire FLASH_WP_N,
+	output wire FLASH_HOLD_N
+);
 
-		.DEBUG_ADDR(debug_addr),
-		.DEBUG_DATA(debug_data),
 
-		.BUSY(mcu_busy)
-	) ;
-	
-	// VIDEO
-	
-	assign FT_OE_N = 1'b1 ; // disable FT
-	
-	wire vga_hsync, vga_vsync, vga_clk ;
-	wire [7:0] vgar, vgag, vgab ;
-	
-	assign VGA_HS = vga_hsync ;
-	assign VGA_VS = vga_vsync ;
-	assign V_CLK  = vga_clk ;
-	
-	overlay#(.HDMI(1'b0)) overlay(
-		.CLK(clk_p),
-		.CLK_VGA(vga_clk),
-		.RGB_I({vgar, vgag, vgab}),
-		.RGB_O({VGA_R, VGA_G, VGA_B}),
-		.HSYNC_I(vga_hsync),
-		.VSYNC_I(vga_vsync),
-		.OSD_COMMAND(osd_command),
-		
-		.sw_leds(sw_leds),
-		.leds(leds),
-		.no_sd(SD_DET_N)
-	) ;
-	
-	// VT100
-	
-	wire tx, rx ;
-	wire vgao, audio_o, vga_blank ;
-	reg  audio_i ;
-	
-	always @(posedge clk_n)
-		case (sw_sound)
-			2'b00 : begin
-				BEEPER <= audio_o ;
-				audio_i <= 1'b0 ;
-			end
-			
-			2'b01 : begin
-				BEEPER <= 1'b0 ;
-				audio_i <= audio_o ;
-			end
-			
-			default : begin
-				BEEPER <= 1'b0 ;
-				audio_i <= 1'b0 ;
-			end
-		endcase
-	
-	vt100_top vt100(
-		.clkin(clk_p),
-		.c0(clk10),
-		.resetbtn(1'b1),
-		.tx(tx),
-		.rx(rx),
-		.vgao(vgao),
-		.vgah(vga_hsync),
-		.vgav(vga_vsync),
-		.vgaclk(vga_clk),
-		.vga_blank(vga_blank),
-		.ps2k_upd(ps2_scancode_upd),
-		.ps2k_dat(ps2_scancode),
-		.audio(audio_o)
-	) ;
-	
-	//                                        Amber                        Green    White
-	assign vgar = vgao ? sw_color == 2'b00 ? 8'd255 : sw_color == 2'b01 ? 8'd51  : 8'd255 : 8'd0 ;
-	assign vgag = vgao ? sw_color == 2'b00 ? 8'd183 : sw_color == 2'b01 ? 8'd255 : 8'd255 : 8'd0 ;
-	assign vgab = vgao ? sw_color == 2'b00 ? 8'd0   : sw_color == 2'b01 ? 8'd51  : 8'd255 : 8'd0 ;
-	
-	// AUDIO
-	dac vt100dac(
-		.clk(clk_n),
-		.speaker(audio_i),
-		.din(DAC_DAT),
-		.lrck(DAC_LRCK),
-		.bck(DAC_BCK)
-	) ;
+// ------------------------------------------------------------------ unused
 
-	// SOFT SWITCHES
-	
-	soft_switches sosw(
-		.clk(clk_p),
-		.sw_command(softsw_command),
-		.sw_reset(sw_reset),
-		.sw_cont(sw_cont),
-		.sw_slow(sw_slow),
-		.sw_bank_offset(sw_bank_offset),
-		.sw_bank(sw_bank),
-		.sw_color(sw_color),
-		.sw_leds(sw_leds),
-		.sw_sound(sw_sound)
-	) ;
-	
-	// PDP
-	
-	reg mcu_load = 1'b1 ;
-	reg prev_loader_act = 1'b0 ;
-	reg [1:0] buttons = 2'b11 ;
-	
-	always @(posedge clk_p) begin
-		buttons[1] <= ~(sw_cont | hw_btn[0]) ;
-		buttons[0] <= ~(sw_reset | hw_btn[1] | mcu_load) ;
-		
-		if (loader_act != prev_loader_act) begin
-			prev_loader_act <= loader_act ;
-			if (prev_loader_act == 1'b1) begin
-				mcu_load <= 1'b0 ;
-			end
+assign WA = 3'b000;
+assign WCS_N = 2'b11;
+assign WRD_N = 1'b1;
+assign WWR_N = 1'b1;
+assign WRESET_N = 1'b1;
+assign WD = 16'bz;
+
+assign UART_RX = 1'bz;
+assign UART_TX = 1'bz;
+assign UART_CTS = 1'bz;
+
+assign FT_OE_N = 1'b1;     // the FT812 does not drive the video DAC
+assign BEEPER = 1'b0;
+assign DAC_MUTE = 1'b1;    // soft mute of the PCM5102: 1 = sound on
+
+// the floppy connector is not used: its outputs 0 (the board inverts them: high = active)
+assign FDC_DRIVE = 2'b00;
+assign FDC_MOTOR = 1'b0;
+assign FDC_DIR = 1'b0;
+assign FDC_STEP = 1'b0;
+assign FDC_WDATA = 1'b0;
+assign FDC_WGATE = 1'b0;
+assign FDC_SIDE_N = 1'b0;
+assign MIDI_TX = 1'b1;
+assign ESP_RESET_N = 1'bz;
+assign ESP_BOOT_N = 1'bz;
+assign MIDI_CLK = 1'b0;      // the SAM2695 synth: held in reset, not used
+assign MIDI_RESET_N = 1'b0;
+assign TAPE_OUT = 1'b0;
+
+// SDRAM: not used (NOP: RAS / CAS / WE high)
+assign SDR_BA = 2'b00;
+assign SDR_A = 13'd0;
+assign SDR_CLK = 1'b0;
+assign SDR_DQM = 2'b11;
+assign SDR_WE_N = 1'b1;
+assign SDR_CAS_N = 1'b1;
+assign SDR_RAS_N = 1'b1;
+assign SDR_DQ = 16'bz;
+
+// the flash chip (the SDRAM /CS is hard wired on Go): not selected
+assign FLASH_CS_N = 1'b1;
+assign FLASH_DI = 1'b1;
+assign FLASH_SCK = 1'b0;
+assign FLASH_WP_N = 1'b1;
+assign FLASH_HOLD_N = 1'b1;
+
+// ------------------------------------------------------------------ clocks
+
+wire clk_50, clk_125, clk_125_n, clk_25, clk_10, clk_sd, clk_8, pll_locked;
+pdp_clocks clocks (
+	.clk_in(CLK_50MHZ),
+	.clk_50(clk_50),
+	.clk_125(clk_125),
+	.clk_125_n(clk_125_n),
+	.clk_25(clk_25),
+	.clk_10(clk_10),
+	.clk_sd(clk_sd),
+	.clk_8(clk_8),
+	.locked(pll_locked)
+);
+(* KEEP = "TRUE" *) wire areset_async = ~pll_locked;
+wire areset, areset_25;
+kg_sync #(.W(1), .STAGES(2), .INIT(1'b1)) sync_areset (.clk(clk_50), .d(areset_async), .q(areset));
+kg_sync #(.W(1), .STAGES(2), .INIT(1'b1)) sync_areset_25 (.clk(clk_25), .d(areset_async), .q(areset_25));
+
+// the pixel clock of the VGA DAC
+ODDR2 oddr_v_clk (.Q(V_CLK), .C0(clk_25), .C1(~clk_25), .CE(1'b1), .D0(1'b1), .D1(1'b0), .R(1'b0), .S(1'b0));
+
+// ------------------------------------------------------------------ MCU
+
+// MCU_SCK is not on a clock pin before rev.G (CLOCK_DEDICATED_ROUTE = FALSE in the ucf)
+wire mcu_sck = MCU_SCK, mcu_sck_ibufg = MCU_SCK;
+
+// MCU link v2 (karabas-go-firmware docs/link_v2.md, kg_mcu2); INT on IO1
+wire mcu_int;
+assign MCU_SPI_IO[0] = mcu_int;   // INT of link v2 on N9 (IO1 of the firmware)
+assign MCU_SPI_IO[1] = 1'bz;
+
+wire [7:0] ps2_code;
+wire ps2_kind, ps2_wr;
+wire [8*12-1:0] sw;
+wire [5:0] btns;
+wire dvi_only;
+wire ft_cs_n, ft_mosi, ft_spi_on;
+wire [15:0] dbg_addr;
+reg [15:0] dbg_data = 16'd0;
+wire osd_wr, osd_en, osd_zoom;
+wire [11:0] osd_waddr;
+wire [7:0] osd_wdata;
+wire [23:0] osd_fg, osd_bg;
+wire [1:0] osd_alpha, osd_place;
+wire [4:0] osd_px, osd_ph;
+wire [3:0] osd_py;
+wire [5:0] osd_pw;
+
+wire [1:0] ld_kind;
+wire [31:0] ld_addr;
+wire [7:0] ld_data;
+wire ld_active, ld_wr;
+
+// the RTC registers of kg_mcu2 (rtc_mode 1: DS1307, BCD) for the TOY of the PDP-11
+wire [7:0] rtc_a, rtc_do;
+
+// the core serial port (port 0) <-> the console line (USB serial mode)
+wire [31:0] port_out_data;
+wire [3:0] port_out_wr, port_in_full;
+wire ser_out_ready;
+reg ser_in_wr = 1'b0;
+reg [7:0] ser_in_data = 8'd0;
+
+kg_mcu2 #(
+	.SW_N(12),
+	.CS_FILTER(3),
+	.CAPS(16'h0000),     // (RTC bit 5 comes from ENABLE_RTC)
+	.ENABLE_OSD(1),
+	.ENABLE_IMG(0),
+	.ENABLE_RTC(1),
+	.ENABLE_AUX(1),      // DEBUG_*: the state of the console line (AT+KARABAS=debug:1)
+	.ENABLE_FT(1),
+	.ENABLE_SD2(0),      // SD2 belongs to the sdspi of the PDP-11
+	.ENABLE_PORTS(4'b0001) // port 0: the core serial port (Console = USB serial)
+) mcu (
+	.CLK(clk_50),
+	.N_RESET(~areset),
+
+	.MCU_SCK(mcu_sck),
+	.MCU_MOSI(MCU_MOSI),
+	.MCU_MISO(MCU_MISO),
+	.MCU_SS(MCU_CS_N),
+	.MCU_INT(mcu_int),
+	.MCU_SPI_FT_SS(MCU_SPI_FT_CS_N),
+	.MCU_SPI_SD2_SS(1'b1),
+
+	.SW(sw), .SW_WR(), .SW_INDEX(), .SW_VALUE(), .HW_ID(), .DVI_ONLY(dvi_only), .CORE_BUILD(), .FW_BUILD(),
+	.BUSY(), .BTNS(btns), .RELOAD_REQ(1'b0), .RELOAD_CORE(8'd0),
+
+	.KBD(), .KBD_WR(),
+	.PS2_CODE(ps2_code), .PS2_KIND(ps2_kind), .PS2_WR(ps2_wr),
+	.MS_X(), .MS_Y(), .MS_Z(), .MS_B(), .MS_WR(),
+	.JOY_L(), .JOY_R(), .JOY_WR(),
+	.PS2_CMD(16'h0000), .PS2_CMD_WR(1'b0),
+
+	.LD_KIND(ld_kind), .LD_SLOT(), .LD_SIZE(), .LD_EXT(), .LD_START(), .LD_ACTIVE(ld_active), .LD_END(),
+	.LD_ADDR(ld_addr), .LD_DATA(ld_data), .LD_WR(ld_wr), .LD_READY(1'b1),
+
+	.OSD_WR(osd_wr), .OSD_WADDR(osd_waddr), .OSD_WDATA(osd_wdata), .OSD_EN(osd_en),
+	.OSD_FG(osd_fg), .OSD_BG(osd_bg), .OSD_ALPHA(osd_alpha), .OSD_PX(osd_px), .OSD_PY(osd_py),
+	.OSD_PW(osd_pw), .OSD_PH(osd_ph), .OSD_PLACE(osd_place), .OSD_ZOOM(osd_zoom),
+
+	.SDC_IMG_MOUNTED(), .SDC_IMG_SIZE(), .SDC_RD(8'd0),
+	.SDC_WR(8'd0), .SDC_SECTOR(32'd0), .SDC_BUSY(), .SDC_DONE(),
+	.SDC_ERROR(), .SDC_SLOT(), .SDC_BYTE_IN_STROBE(),
+	.SDC_BYTE_ADDR(), .SDC_BYTE_IN_DATA(),
+	.SDC_BYTE_OUT_DATA(8'd0), .IMG_WP(), .IMG_PHYS_WR(), .IMG_PHYS(), .IMG_FLUSH(), .FDD_CHNG_WR(), .FDD_CHNG(),
+	.FDD_CHNG_REQ(1'b0), .FDD_CHNG_DS(2'd0),
+	.BK_MOUNT(1'b0), .BK_FLUSHED(1'b0), .BK_SLOT(3'd0), .BK_SIZE(32'd0), .BK_KIND(8'd0), .BK_RESULT(8'd0), .IMG_ACTIVE(),
+	.PORT_OUT_DATA(port_out_data), .PORT_OUT_WR(port_out_wr), .PORT_OUT_READY({ 3'b111, ser_out_ready }),
+	.PORT_IN_DATA({ 24'd0, ser_in_data }), .PORT_IN_WR({ 3'b000, ser_in_wr }),
+	.PORT_CFG(128'd0), .PORT_IN_FULL(port_in_full), .PORT_STAT(), .PORT_STAT_WR(),
+	.RTC_A(rtc_a), .RTC_DI(8'd0), .RTC_CS(1'b1), .RTC_WR_N(1'b1), .MATRIX_CMD(24'd0), .MATRIX_CMD_WR(1'b0),
+	.DEBUG_ADDR(dbg_addr), .DEBUG_DATA(dbg_data), .RTC_DO(rtc_do),
+
+	.FT_SPI_ON(ft_spi_on), .FT_VGA_ON(), .FT_RESET(), .FT_SCK(), .FT_MOSI(ft_mosi), .FT_MISO(FT_SPI_MISO),
+	.FT_CS_N(ft_cs_n),
+	.SD2_SCK(), .SD2_MOSI(), .SD2_MISO(1'b1), .SD2_CS_N()
+);
+
+assign FT_SPI_CS_N = ft_spi_on ? ft_cs_n : 1'b1;
+assign FT_SPI_SCK = ft_spi_on ? mcu_sck_ibufg : 1'b1;
+assign FT_SPI_MOSI = ft_spi_on ? ft_mosi : 1'b1;
+
+// ------------------------------------------------------------------ soft switches
+
+wire sw_reset = sw[0*8];
+wire sw_cont = sw[1*8];
+wire sw_slow = sw[2*8];
+wire [2:0] sw_bank_offset = sw[3*8 +: 3];
+wire [7:0] sw_bank = { sw[7*8 +: 2], sw[6*8 +: 2], sw[5*8 +: 2], sw[4*8 +: 2] };
+wire [1:0] sw_color = sw[8*8 +: 2];
+wire sw_leds = sw[9*8];
+wire [1:0] sw_sound = sw[10*8 +: 2];
+wire sw_console = sw[11*8];
+
+// ------------------------------------------------------------------ the ROM loader (bootmon.rom)
+
+// LD kind 0 (the ROMs of the .kg): bytes, the even one held, the odd one makes the word, as the
+// romloader of the old mcu.vhd (ROMLOAD_ADDR = byte address 21..1, ROMLOAD_DATA = { odd, even })
+reg [7:0] ld_lo = 8'd0;
+reg loader_wr = 1'b0;
+reg [21:1] loader_addr = 21'd0;
+reg [15:0] loader_data = 16'd0;
+always @(posedge clk_50) begin
+	loader_wr <= 1'b0;
+	if (ld_wr && ld_kind == 2'd0) begin
+		if (!ld_addr[0])
+			ld_lo <= ld_data;
+		else begin
+			loader_addr <= ld_addr[21:1];
+			loader_data <= { ld_data, ld_lo };
+			loader_wr <= 1'b1;
 		end
 	end
+end
 
-	pdp_top mainboard(
-		.clk50(clk_p),
-		.clk_p(clk_p),
-		.clk_n(clk_n),
-		.sdclock(sdclock),
-		.clkrdy(clkready),
-		.rst_n(1'b1),
-		.button(buttons),
-		.sw_slow(sw_slow),
-		.sw_bank_offset(sw_bank_offset),
-		.sw_bank(sw_bank),
-		.MA(MA),
-		.MD(MD),
-		.MWR_N(MWR_N),
-		.MRD_N(MRD_N),
-		.sdcard_cs(SD_CS_N),
-		.sdcard_mosi(SD_DI),
-		.sdcard_sclk(SD_CLK),
-		.sdcard_miso(SD_DO),
-		.irps_txd(rx),
-		.irps_rxd(tx),
-		.rtc_a(rtc_addr),
-		.rtc_di(rtc_do),
-		.leds(leds),
-		.loader_wr(loader_wr),
-		.loader_addr(loader_addr),
-		.loader_data(loader_data) 
-	) ;
-	
+// the PDP-11 is held in reset from power on until the first ROM load has ended (upstream mcu_load)
+reg mcu_load = 1'b1;
+reg ld_active_q = 1'b0;
+always @(posedge clk_50) begin
+	ld_active_q <= ld_active;
+	if (ld_active_q && !ld_active)
+		mcu_load <= 1'b0;
+end
+
+// the buttons of upstream: [1] CONT. (HALT / program), [0] RESET; active low
+reg [1:0] buttons = 2'b11;
+always @(posedge clk_50) begin
+	buttons[1] <= ~(sw_cont | btns[0]);
+	buttons[0] <= ~(sw_reset | btns[1] | mcu_load);
+end
+
+// ------------------------------------------------------------------ the console line
+
+wire pdp_txd;              // the console of the PDP-11
+reg pdp_rxd = 1'b1;
+wire pdp_hold;
+
+// terminal mode: the PDP-11 to the terminal straight; the terminal to the PDP-11 through a
+// receiver and a transmitter that take XON / XOFF out
+wire term_tx, term_rts;
+wire term_rx = sw_console ? 1'b1 : pdp_txd;
+reg term_xoff = 1'b0;
+wire term_done;
+wire [7:0] term_byte;
+vt_uart_rx term_rcv (.clk(clk_50), .reset(areset), .rx(term_tx), .done(term_done), .data(term_byte));
+reg [7:0] n_xoff = 8'd0;
+always @(posedge clk_50) begin
+	if (areset)
+		term_xoff <= 1'b0;
+	else if (term_done && term_byte == 8'h13) begin
+		term_xoff <= 1'b1;
+		n_xoff <= n_xoff + 8'd1;
+	end
+	else if (term_done && term_byte == 8'h11)
+		term_xoff <= 1'b0;
+end
+wire term_pass = term_done && term_byte != 8'h13 && term_byte != 8'h11;
+
+// usb mode: the bytes of the PC from the out fifo of port 0
+wire usb_out_ready;
+assign ser_out_ready = sw_console && usb_out_ready;
+
+// one transmitter to the rxd of the PDP-11: the terminal bytes (a 4-byte queue, the terminal sends
+// at the line rate) or the bytes of the PC
+reg [7:0] tq [0:3];
+reg [1:0] tq_w = 2'd0, tq_r = 2'd0;
+reg [2:0] tq_n = 3'd0;
+wire tq_take = !sw_console && tq_n != 3'd0 && usb_out_ready;   // the transmitter is free
+always @(posedge clk_50) begin
+	if (areset || sw_console) begin
+		tq_w <= 2'd0; tq_r <= 2'd0; tq_n <= 3'd0;
+	end
+	else begin
+		if (term_pass && tq_n != 3'd4) begin
+			tq[tq_w] <= term_byte;
+			tq_w <= tq_w + 2'd1;
+		end
+		if (tq_take)
+			tq_r <= tq_r + 2'd1;
+		tq_n <= tq_n + ((term_pass && tq_n != 3'd4) ? 3'd1 : 3'd0) - (tq_take ? 3'd1 : 3'd0);
+	end
+end
+reg tq_load = 1'b0;
+reg [7:0] tq_byte = 8'd0;
+always @(posedge clk_50) begin
+	tq_load <= tq_take;
+	if (tq_take) tq_byte <= tq[tq_r];
+end
+wire tx_load = sw_console ? port_out_wr[0] : tq_load;
+wire [7:0] tx_byte = sw_console ? port_out_data[7:0] : tq_byte;
+wire tx_line;
+vt_uart_tx to_pdp (
+	.clk(clk_50), .reset(areset), .hold(1'b0), .load(tx_load), .data(tx_byte), .ready(usb_out_ready), .tx(tx_line)
+);
+always @(posedge clk_50)
+	pdp_rxd <= tx_line;
+
+// the PDP-11 to the PC (usb mode): a receiver into the in fifo of port 0; a byte that finds the fifo
+// full waits in a latch, and the PDP-11 transmitter is held while the latch is taken
+wire usb_done;
+wire [7:0] usb_byte;
+vt_uart_rx from_pdp (.clk(clk_50), .reset(areset), .rx(sw_console ? pdp_txd : 1'b1), .done(usb_done), .data(usb_byte));
+reg usb_latch = 1'b0;
+reg [7:0] usb_latch_byte = 8'd0;
+reg [7:0] n_drop = 8'd0;
+always @(posedge clk_50) begin
+	ser_in_wr <= 1'b0;
+	if (areset || !sw_console)
+		usb_latch <= 1'b0;
+	else if (usb_latch) begin
+		if (!port_in_full[0]) begin
+			ser_in_data <= usb_latch_byte;
+			ser_in_wr <= 1'b1;
+			usb_latch <= usb_done;          // a byte at this very clock takes the latch again
+			usb_latch_byte <= usb_byte;
+		end
+		else if (usb_done)
+			n_drop <= n_drop + 8'd1;        // a second byte while held: lost (the hold came late)
+	end
+	else if (usb_done) begin
+		if (port_in_full[0]) begin
+			usb_latch <= 1'b1;
+			usb_latch_byte <= usb_byte;
+		end
+		else begin
+			ser_in_data <= usb_byte;
+			ser_in_wr <= 1'b1;
+		end
+	end
+end
+
+assign pdp_hold = sw_console ? (usb_latch || port_in_full[0]) : (term_rts || term_xoff);
+
+// ------------------------------------------------------------------ the PDP-11
+
+wire [7:0] leds;
+pdp_top mainboard (
+	.clk50(clk_50),
+	.clk_p(clk_50),
+	.clk_n(1'b0),
+	.sdclock(clk_sd),
+	.clkrdy(pll_locked),
+	.rst_n(1'b1),
+	.button(buttons),
+	.sw_slow(sw_slow),
+	.sw_bank_offset(sw_bank_offset),
+	.sw_bank(sw_bank),
+	.MA(MA),
+	.MD(MD),
+	.MWR_N(MWR_N),
+	.MRD_N(MRD_N),
+	.sdcard_cs(SD_CS_N),
+	.sdcard_mosi(SD_DI),
+	.sdcard_sclk(SD_CLK),
+	.sdcard_miso(SD_DO),
+	.irps_txd(pdp_txd),
+	.irps_rxd(pdp_rxd),
+	.irps_hold(pdp_hold),
+	.rtc_a(rtc_a),
+	.rtc_di(rtc_do),
+	.leds(leds),
+	.loader_wr(loader_wr),
+	.loader_addr(loader_addr),
+	.loader_data(loader_data)
+);
+
+// ------------------------------------------------------------------ the terminal
+
+wire vt_o, vt_hs, vt_vs, vt_blank, vt_bell;
+vt100_top terminal (
+	.clkin(clk_50),
+	.c0(clk_10),
+	.resetbtn(~areset),
+	.tx(term_tx),
+	.rx(term_rx),
+	.rts(term_rts),
+	.vgao(vt_o),
+	.vgai(),
+	.vgah(vt_hs),
+	.vgav(vt_vs),
+	.vgaclk(),
+	.vga_blank(vt_blank),
+	.ps2k_upd(ps2_wr && !ps2_kind),
+	.ps2k_dat(ps2_code),
+	.audio(vt_bell)
+);
+
+// the picture: clk_50 -> clk_25 (both registered; the terminal holds a pixel for two clk_50)
+reg [3:0] vt_q = 4'b1100;
+always @(posedge clk_50)
+	vt_q <= { vt_hs, vt_vs, vt_blank, vt_o };
+reg [3:0] vt_p = 4'b1100;
+always @(posedge clk_25)
+	vt_p <= vt_q;
+
+//                    Amber            Green            White
+wire [23:0] fg = sw_color == 2'd0 ? 24'hFFB700 : sw_color == 2'd1 ? 24'h33FF33 : 24'hFFFFFF;
+reg [23:0] vt_rgb = 24'd0;
+reg vt_hs_p = 1'b0, vt_vs_p = 1'b0, vt_de_p = 1'b0;
+always @(posedge clk_25) begin
+	vt_rgb <= (vt_p[0] && !vt_p[1]) ? fg : 24'd0;
+	vt_hs_p <= vt_p[3];     // the syncs of the terminal: low active
+	vt_vs_p <= vt_p[2];
+	vt_de_p <= !vt_p[1];
+end
+
+// the front panel LEDs of upstream (icons.v): counted from the starts of the sync pulses as the
+// old overlay.vhd did, shown with the Leds item or while no card is in SD2
+reg [10:0] hcnt = 11'd0, vcnt = 11'd0;
+reg hs_q = 1'b1, vs_q = 1'b1;
+always @(posedge clk_25) begin
+	hs_q <= vt_hs_p;
+	if (!vt_hs_p && hs_q) begin
+		hcnt <= 11'd0;
+		vcnt <= vcnt + 11'd1;
+		vs_q <= vt_vs_p;
+		if (!vt_vs_p && vs_q)
+			vcnt <= 11'd0;
+	end
+	else
+		hcnt <= hcnt + 11'd1;
+end
+wire [23:0] led_rgb;
+wire led_visible;
+icons led_icons (.clk(clk_25), .hcnt(hcnt), .vcnt(vcnt), .leds(leds), .rgb_o(led_rgb), .visible(led_visible));
+reg sd_none = 1'b0, leds_on = 1'b0;
+always @(posedge clk_25) begin
+	sd_none <= SD_DET_N;
+	leds_on <= sw_leds;
+end
+
+// icons has one clock of latency: the video is delayed by one clock with it
+reg [23:0] vid_rgb = 24'd0;
+reg vid_hs = 1'b0, vid_vs = 1'b0, vid_de = 1'b0;
+reg [23:0] vt_rgb_d = 24'd0;
+reg vt_hs_d = 1'b1, vt_vs_d = 1'b1, vt_de_d = 1'b0;
+always @(posedge clk_25) begin
+	vt_rgb_d <= vt_rgb; vt_hs_d <= vt_hs_p; vt_vs_d <= vt_vs_p; vt_de_d <= vt_de_p;
+	vid_rgb <= ((leds_on || sd_none) && led_visible) ? led_rgb : vt_rgb_d;
+	vid_hs <= !vt_hs_d;     // positive inside, negative to HDMI
+	vid_vs <= !vt_vs_d;
+	vid_de <= vt_de_d;
+end
+
+// the bitmap OSD of link v2 (kg_l2_osd_overlay): centred in de, 2 clocks of latency with its syncs and de
+wire [23:0] osd_rgb;
+wire osd_hs, osd_vs, osd_de;
+kg_l2_osd_overlay osd (
+	.wclk(clk_50),
+	.osd_wr(osd_wr), .osd_waddr(osd_waddr), .osd_wdata(osd_wdata), .osd_en(osd_en),
+	.osd_fg(osd_fg), .osd_bg(osd_bg), .osd_alpha(osd_alpha), .osd_px(osd_px), .osd_py(osd_py),
+	.osd_pw(osd_pw), .osd_ph(osd_ph), .osd_place(osd_place), .osd_zoom(osd_zoom),
+	.icon_on(8'd0), .icon_act(8'd0),
+	.clk(clk_25),
+	.rgb_i(vid_rgb), .hs_i(vid_hs), .vs_i(vid_vs), .de_i(vid_de),
+	.rgb_o(osd_rgb), .hs_o(osd_hs), .vs_o(osd_vs), .de_o(osd_de)
+);
+
+// ------------------------------------------------------------------ audio
+
+// the bell of the terminal: a square wave, an eighth of full scale; Sound = Off mutes it
+reg [15:0] audio = 16'd0;
+always @(posedge clk_50)
+	audio <= sw_sound == 2'd1 ? 16'd0 : vt_bell ? 16'h0800 : 16'hF800;
+
+kg_pcm5102 #(.DIV_BITS(3)) dac (  // bck 3.1 MHz, 97.7 kHz
+	.clk(clk_50),
+	.reset(areset),
+	.left(audio),
+	.right(audio),
+	.din(DAC_DAT),
+	.bck(DAC_BCK),
+	.lrck(DAC_LRCK)
+);
+
+// ------------------------------------------------------------------ VGA
+
+// 640 x 480 at 60 Hz: negative syncs as on HDMI, black outside de (the DAC has no blank input); the
+// OSD output is registered with them
+reg vga_hs_o = 1'b1, vga_vs_o = 1'b1;
+reg [23:0] vga_rgb_o = 24'd0;
+always @(posedge clk_25) begin
+	vga_hs_o <= ~osd_hs;
+	vga_vs_o <= ~osd_vs;
+	vga_rgb_o <= osd_de ? osd_rgb : 24'd0;
+end
+assign VGA_R = vga_rgb_o[23:16];
+assign VGA_G = vga_rgb_o[15:8];
+assign VGA_B = vga_rgb_o[7:0];
+assign VGA_HS = vga_hs_o;
+assign VGA_VS = vga_vs_o;
+
+// ------------------------------------------------------------------ debug
+
+// DEBUG_ADDR: { console, hold, rts, xoff, usb latch, 3'b0, XOFF count }; DEBUG_DATA: { LEDs, USB bytes lost }
+assign dbg_addr = { sw_console, pdp_hold, term_rts, term_xoff, usb_latch, 3'd0, n_xoff };
+always @(posedge clk_50)
+	dbg_data <= { leds, n_drop };
+
 endmodule
