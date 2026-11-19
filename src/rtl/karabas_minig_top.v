@@ -30,7 +30,7 @@
  Front panel LEDs (icons.v of upstream, OSD item Front panel).
 
  Soft switches (the "index" of the items in core.json, the numbers of soft_switches.v of upstream):
-   0 Reset   1 Halt / Run (CONT of upstream)   2 Slow CPU   3..7 not used (the SD2 offset and
+   0 Reset   1 Continue (CONT)   2 Slow CPU   3..7 not used (the SD2 offset and
    banks of upstream)   8 Colour   9 Front panel   10 Sound (On / Off)
    11 Console (Terminal / USB serial)
 */

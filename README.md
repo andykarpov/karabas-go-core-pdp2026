@@ -139,8 +139,8 @@ Device names: `DK:` is the disk you booted from, `RK0:`..`RK7:` the RK05 disks, 
 Tetris: type `@TETRIS` (the games are on RK4, all in the ready set).
 
 There is no "shutdown": RT-11 writes to the disk at once, so just let the program finish. **F12**
-resets the machine back to the console, **F11** (Halt / Run) stops the program and goes to the
-console, and a second press continues it where it stopped.
+resets the machine back to the console, **F11** (Continue) is the CONT key of the front panel: it
+continues a halted program.
 
 ## Paper tape
 
@@ -224,7 +224,7 @@ The board screen keeps the terminal, but it is not connected to the PDP-11 then.
 **Menu+Esc** ("Menu" is the Windows key):
 
 - **Reset** (**F12**): reset the machine;
-- **Halt / Run** (**F11**): the HALT / CONT key of the front panel (above);
+- **Continue** (**F11**): the CONT key of the front panel: continue a halted program;
 - **Console**: Terminal (the built-in VT100) or USB serial (the core serial port on a PC);
 - **Colour**: the text colour: Amber, Green or White;
 - **Sound**: the terminal bell (HDMI and the audio output);

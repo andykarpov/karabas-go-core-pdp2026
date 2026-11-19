@@ -31,7 +31,7 @@ The rules of the other karabas-go cores apply: standard video timing with syncs 
 ## Build
 
 - `cd src && make minig` (or `go`, `mini`: xst, impl, `.kg`), `make <board>-report`. Release: all three boards, then `python3 make_core.py core.json pdp2026.kg` packs them all (a `make <board>` packs only its board). `make_core.py` is a symlink to `../../karabas-go-tools/make_core/make_core.py`. `karabas_<board>.bin` and `pdp2026.kg` are committed.
-- OSD (`core.json`, the switch numbers are those of upstream `soft_switches`): 0 Reset (F12), 1 Halt / Run (F11, the front panel HALT / CONT), 11 Console (Terminal / USB serial), 8 Colour, 10 Sound, 9 Front panel (LEDs), 2 Slow CPU, page Disks: the F items RK05 / RL02 / RP06 / Paper tape (slots 0..3, dir /pdp11, defaults rt11.rk / rt11.rl / tape.ptp); switches 3..7 (the SD2 offset and banks of upstream) are not used. Look approved by the user 2026-11-19.
+- OSD (`core.json`, the switch numbers are those of upstream `soft_switches`): 0 Reset (F12), 1 Continue (F11, the CONT key of the front panel; named so by the author 2026-11-19, it is not a halt toggle), 11 Console (Terminal / USB serial), 8 Colour, 10 Sound, 9 Front panel (LEDs), 2 Slow CPU, page Disks: the F items RK05 / RL02 / RP06 / Paper tape (slots 0..3, dir /pdp11, defaults rt11.rk / rt11.rl / tape.ptp); switches 3..7 (the SD2 offset and banks of upstream) are not used. Look approved by the user 2026-11-19.
 - The `$` monitor reads its commands as pairs of characters: a lone CR first shifts the pairs (looks like a line fault, is not).
 - DEBUG (`AT+KARABAS=debug:1`, shown in the firmware log with `debug=1`): addr { console, hold, rts, xoff, usb latch, 0, 0, 0, XOFF count }, data { LEDs, USB bytes lost }.
 

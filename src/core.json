@@ -41,7 +41,7 @@
         },
         {
             "type": "T",
-            "name": "Halt / Run",
+            "name": "Continue",
             "options": null,
             "default": 0,
             "hotkey": "F11",
