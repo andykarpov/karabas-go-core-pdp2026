@@ -53,7 +53,9 @@ module rk11 (
 // отладочные сигналы
    output [7:0]           sdcard_debug,
 	output 			 		  master_sdhc,
-	input				 		  slave_sdhc
+	input				 		  slave_sdhc,
+	input  [19:0]           img_in,    // karabas: the image bus of sdspi_img (pdp_img)
+	output [36:0]           img_out
 ); 
 
 // Сигналы упраления обменом с шиной
@@ -196,7 +198,8 @@ wire sdspi_io_done;            // флаг заверщение операции
 //***********************************************
 //*  Контроллер SD-карты
 //***********************************************
-sdspi sd1 (
+sdspi_img sd1 (   // karabas: an image file of the MCU instead of the SD card
+		.img_in(img_in), .img_out(img_out),
       // интерфейс к карте
       .sdcard_cs(sdcard_cs), 
       .sdcard_mosi(sdcard_mosi), 

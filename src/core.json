@@ -1,7 +1,7 @@
 {
     "id": "pdp2026",
     "name": "PDP-11/70",
-    "build": "26111933",
+    "build": "26111934",
     "visible": true,
     "type": "osd",
     "order": 2,
@@ -16,17 +16,17 @@
     "boards": {
         "go": {
             "link": 2,
-            "build": "26111933",
+            "build": "26111934",
             "bitstream": "karabas_go.bin"
         },
         "mini": {
             "link": 2,
-            "build": "26111933",
+            "build": "26111934",
             "bitstream": "karabas_mini.bin"
         },
         "minig": {
             "link": 2,
-            "build": "26111933",
+            "build": "26111934",
             "bitstream": "karabas_minig.bin"
         }
     },
@@ -41,7 +41,7 @@
         },
         {
             "type": "T",
-            "name": "Halt / Run",
+            "name": "Continue",
             "options": null,
             "default": 0,
             "hotkey": "F11",
@@ -104,72 +104,46 @@
             "open": 1
         },
         {
-            "type": "S",
-            "name": "SD2 offset",
-            "options": [
-                "0",
-                "8 GB",
-                "16 GB",
-                "24 GB",
-                "32 GB",
-                "40 GB",
-                "48 GB",
-                "56 GB"
+            "type": "F",
+            "name": "RK05",
+            "slot": 0,
+            "exts": [
+                "rk"
             ],
-            "default": 0,
-            "index": 3,
+            "dir": "/pdp11",
+            "file": "/pdp11/rt11.rk",
             "page": 1
         },
         {
-            "type": "S",
-            "name": "RK bank",
-            "options": [
-                "Bank 0",
-                "Bank 1",
-                "Bank 2",
-                "Bank 3"
+            "type": "F",
+            "name": "RL02",
+            "slot": 1,
+            "exts": [
+                "rl"
             ],
-            "default": 0,
-            "index": 4,
+            "dir": "/pdp11",
+            "file": "/pdp11/rt11.rl",
             "page": 1
         },
         {
-            "type": "S",
-            "name": "RL bank",
-            "options": [
-                "Bank 0",
-                "Bank 1",
-                "Bank 2",
-                "Bank 3"
+            "type": "F",
+            "name": "RP06",
+            "slot": 2,
+            "exts": [
+                "rp"
             ],
-            "default": 0,
-            "index": 5,
+            "dir": "/pdp11",
             "page": 1
         },
         {
-            "type": "S",
-            "name": "RP bank",
-            "options": [
-                "Bank 0",
-                "Bank 1",
-                "Bank 2",
-                "Bank 3"
+            "type": "F",
+            "name": "Paper tape",
+            "slot": 3,
+            "exts": [
+                "ptp"
             ],
-            "default": 0,
-            "index": 6,
-            "page": 1
-        },
-        {
-            "type": "S",
-            "name": "Tape bank",
-            "options": [
-                "Bank 0",
-                "Bank 1",
-                "Bank 2",
-                "Bank 3"
-            ],
-            "default": 0,
-            "index": 7,
+            "dir": "/pdp11",
+            "file": "/pdp11/tape.ptp",
             "page": 1
         }
     ]

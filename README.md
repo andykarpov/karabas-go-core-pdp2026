@@ -19,101 +19,60 @@ connected the same way.
 | Karabas Mini | | HDMI / DVI 640 x 480 |
 | Karabas Mini G | | HDMI / DVI 640 x 480 |
 
-Status: checked on Mini G (the console monitor, bootmon, the console on the terminal and on USB,
-the OSD). The Go and Mini builds have not been run on a board yet.
+Status: checked on Mini G (the console monitor, bootmon, RT-11 booting from RK, writes to the disk,
+RL, the paper tape, the console on the terminal and on USB, the OSD). The Go and Mini builds have not been run on a board yet.
 
 ## What you need
 
 - A Karabas board with firmware v26111914 or newer.
-- An SD card in the usual slot (SD1) with the core file.
-- **A second SD card** for the SD2 slot (the slot of the FPGA): it holds the PDP-11 disks. Any size
-  will do: the ready disks take the first ~100 MB. Its content is erased.
+- An SD card in the usual slot (SD1): it holds the core and the PDP-11 disks. No second card (SD2)
+  is needed.
 - A USB or PS/2 keyboard.
-- A Linux (or macOS) PC to write the disks to the second card.
 
-## Step 1. Disks on the second SD card
+## Step 1. The core and the disks on the SD card
 
-The PDP-11 disks are not files on the card but raw blocks at fixed places, as on a real hard disk.
-They are written by `sd-store` from `disks/tools`.
+The PDP-11 disks are files on the same card as the core. Each controller has its own file with
+its disks back to back inside: RK0, RK1, ..., like a stack of disk packs in a cabinet.
 
-1. Build the tools (needs `gcc` and `make`):
-
-   ```
-   cd disks/tools
-   make
-   ```
-
-2. Unpack the disk images:
+1. Copy `src/pdp2026.kg` to the root of the card.
+2. Make a `pdp11` folder on the card and unpack `disks/pdp11.tar.xz` into it:
 
    ```
-   cd ..
-   for f in *.tar.xz; do tar xJf "$f"; done
+   tar xJf disks/pdp11.tar.xz -C /path/to/the/card
    ```
 
-   This gives `B0-RK0.dsk`, `B0-RK1.dsk` and the others: `B<bank>-<type><unit>.dsk`.
+   (on Windows: 7-Zip). This gives:
 
-3. Put the second card into a card reader and find its device name: `lsblk` before and after
-   inserting it, for example `/dev/sdc`. **A wrong device erases another disk.** If the system
-   mounted partitions of the card, unmount them: `sudo umount /dev/sdc?*`.
+   | File | Controller | Disks |
+   | --- | --- | --- |
+   | `/pdp11/rt11.rk` | RK11 (RK05) | RK0 RT-11 v05.07 (the boot disk), RK1 MACRO-11 examples and tests, RK3 FORTRAN-11, RK4 games, RK5 system tests as paper tape images; RK2 empty |
+   | `/pdp11/rt11.rl` | RL11 (RL02) | RL0 FIG-FORTH for RT-11 and standalone, RL2 the RT-11 sources; RL1 empty |
+   | `/pdp11/tape.ptp` | PC11 (paper tape) | a blank tape |
 
-4. Write the disks (from `disks`, where the `.dsk` files are). The arguments are the device, the
-   disk type, the unit and the bank:
+The core mounts these files by itself when they are in `/pdp11` under these names. Other files are
+chosen in the OSD: **Menu+Esc** > **Disks**.
 
-   ```
-   sudo tools/sd-store /dev/sdc RK 0 0
-   sudo tools/sd-store /dev/sdc RK 1 0
-   sudo tools/sd-store /dev/sdc RK 3 0
-   sudo tools/sd-store /dev/sdc RK 4 0
-   sudo tools/sd-store /dev/sdc RK 5 0
-   sudo tools/sd-store /dev/sdc RL 0 0
-   sudo tools/sd-store /dev/sdc RL 2 0
-   sync
-   ```
+The unit numbers matter: RT-11 on RK0 assigns `RK1:` to the assembler, `RK3:` to FORTRAN and
+`RK4:` to the games when it boots. That is why RK2 is empty in the set rather than left out.
 
-   Without a fifth argument `sd-store` takes the file `B<bank>-<type><unit>.dsk`. Your own image
-   goes as the fifth argument: `sudo tools/sd-store /dev/sdc RK 2 0 mydisk.dsk`.
+### Your own disks
 
-5. Put the card into the SD2 slot of the board.
+`disks/tools/mkpack.py` (Python 3) builds a set from separate simh images:
 
-The ready disks:
+```
+python3 disks/tools/mkpack.py rk my.rk  RK0.dsk RK1.dsk - RK3.dsk
+python3 disks/tools/mkpack.py rl my.rl  RL0.dsk
+python3 disks/tools/mkpack.py rp my.rp  RP0.dsk
+python3 disks/tools/mkpack.py ptp my.ptp tape.bin
+```
 
-| Disk | Content |
-| :--: | --- |
-| RK0 | RT-11 v05.07, the boot disk (required) |
-| RK1 | MACRO-11 assembler examples and tests |
-| RK3 | FORTRAN-11 |
-| RK4 | games for the PDP-11 and DVK |
-| RK5 | system tests as paper tape images |
-| RL0 | FIG-FORTH for RT-11 and standalone |
-| RL2 | the RT-11 sources |
+`-` is an empty disk at that place. A set holds up to 8 RK05 (2.4 MB each), 4 RL02 and 8 RP06. A
+unit beyond the end of the file is "no disk" for the PDP-11. An RL file is twice the size of its
+images: each 256 byte RL02 sector takes 512 bytes. `mkpack.py ptp` without a file makes a blank
+tape, with a file a tape of its bytes (up to 51200).
 
-RK0 alone is enough to start. Other simh compatible RK05, RL02 and RP06 images work too (type `DB`
-for `sd-store`, preferably with the autozap option). `sd-extract` with the same arguments reads a
-disk from the card back into a file.
-
-### Banks
-
-A bank is a full set of disks: 8 RK05, 4 RL02, 8 RP06 and a paper tape, 2 GB of the card. The OSD
-(**Menu+Esc** > **Disks**) selects bank 0..3 for each type, so one card holds 4 sets to switch
-between without rewriting.
-
-### One card for everything
-
-To keep ordinary files on the same card:
-
-1. Partition the card, the first partition of the size you need.
-2. In the OSD (**Disks** > **SD2 offset**) set the offset larger than that partition.
-3. Give `sd-store` the bank shifted by the offset: every 8 GB of offset adds 4 to the bank number.
-
-| SD2 offset | Banks for `sd-store` |
-| :--: | :--: |
-| 0 | 0 .. 3 |
-| 8 GB | 4 .. 7 |
-| 16 GB | 8 .. 11 |
-| ... | ... |
-| 56 GB | 28 .. 31 |
-
-Example: a 16 GB card, the first partition 7.9 GB, SD2 offset 8 GB, banks 4..7.
+The separate images of upstream are in `disks/B0-*.tar.xz`. `sd-store` and the other tools in
+`disks/tools` wrote the disks to a second card in the old scheme; the core needs them no more.
 
 ## Step 2. First start
 
@@ -177,16 +136,16 @@ First commands:
 Device names: `DK:` is the disk you booted from, `RK0:`..`RK7:` the RK05 disks, `DL0:`..`DL3:` RL02,
 `DB0:` RP06, `PC:` the paper tape. Commands can be shortened (`DIR` = `DIRECTORY`).
 
-Tetris: write RK0, RK1 and RK4, boot and type `@TETRIS`.
+Tetris: type `@TETRIS` (the games are on RK4, all in the ready set).
 
 There is no "shutdown": RT-11 writes to the disk at once, so just let the program finish. **F12**
-resets the machine back to the console, **F11** (Halt / Run) stops the program and goes to the
-console, and a second press continues it where it stopped.
+resets the machine back to the console, **F11** (Continue) is the CONT key of the front panel: it
+continues a halted program.
 
 ## Paper tape
 
-The paper tape is an area of the card: RT-11 "punches" a tape there (`PC:`) and the absolute loader
-of the console reads it. This is how programs and tests run without an OS. Steps 1..4 are needed
+The paper tape is a `.ptp` file in the **Paper tape** item: RT-11 "punches" a tape on it (`PC:`)
+and the absolute loader of the console reads it. This is how programs and tests run without an OS. Steps 1..4 are needed
 only to change the tape.
 
 1. Boot RT-11.
@@ -212,18 +171,19 @@ only to change the tape.
 
 ### Tests
 
-**Tape bank** (OSD > Disks) selects one of 4 tapes. For the tests, turn on **Front panel** (the
+Keeping a file for each tape is handy: make a blank tape (`mkpack.py ptp test.ptp`), put it into
+`/pdp11` and choose it in **Paper tape**. For the tests, turn on **Front panel** (the
 front panel lights over the picture). The tests do not start by themselves after loading; most
 start at 200.
 
-1. Punch a test to bank 1 and restart the core (Ctrl+Alt+Backspace, PDP-11/70 in the core menu):
+1. Punch a test to the tape and restart the core (Ctrl+Alt+Backspace, PDP-11/70 in the core
+   menu):
 
    ```
    COPY RK5:CKBAB0.TAP PC:
    ```
 
-2. Choose **Tape bank** = Bank 1 and load the test (`L 157500`, `S`). The machine stops after
-   loading, the green light goes off.
+2. Load the test (`L 157500`, `S`). The machine stops after loading, the green light goes off.
 3. Reset the machine (**F12**) and start the test:
 
    ```
@@ -264,13 +224,13 @@ The board screen keeps the terminal, but it is not connected to the PDP-11 then.
 **Menu+Esc** ("Menu" is the Windows key):
 
 - **Reset** (**F12**): reset the machine;
-- **Halt / Run** (**F11**): the HALT / CONT key of the front panel (above);
+- **Continue** (**F11**): the CONT key of the front panel: continue a halted program;
 - **Console**: Terminal (the built-in VT100) or USB serial (the core serial port on a PC);
 - **Colour**: the text colour: Amber, Green or White;
 - **Sound**: the terminal bell (HDMI and the audio output);
-- **Front panel**: the front panel lights over the picture (also shown while no card is in SD2);
+- **Front panel**: the front panel lights over the picture;
 - **Slow CPU**: a slowed down CPU;
-- **Disks**: **SD2 offset** and the **RK**, **RL**, **RP**, **Tape** banks.
+- **Disks**: the disk files: **RK05**, **RL02**, **RP06**, **Paper tape**.
 
 Ctrl+Alt+Backspace goes back to the core menu.
 
@@ -281,6 +241,8 @@ Ctrl+Alt+Backspace goes back to the core menu.
 - the terminal fixes of [karabas-go-core-vt100](https://github.com/andykarpov/karabas-go-core-vt100):
   the kl11 receiver divider (text got corrupted at 115200), XON / XOFF handled in the core (nothing
   is lost while the screen scrolls);
+- the disks are files on SD1, one per controller (instead of a separate SD2 card and five SD card
+  controllers: ~750 LUT less);
 - the PDP-11 console on the USB core serial port (OSD **Console**);
 - a `RESET` instruction no longer cuts the character on the console line (the bootmon banner came
   out as junk);
@@ -291,7 +253,8 @@ Ctrl+Alt+Backspace goes back to the core menu.
 ISE 14.7: `cd src && make minig` (or `go`, `mini`), `make minig-report`. The modules come from the
 `modules` submodule (karabas-go-modules): `git submodule update --init`. `src/make_core.py` is a
 link to karabas-go-tools next to this repo. The Go and Mini tops are made from the Mini G top:
-`python3 src/tools/mktops.py`. The console UART testbench: `src/sim/tb_wbc_uart_reset.v` (iverilog).
+`python3 src/tools/mktops.py`. Testbenches (iverilog): the console UART `src/sim/tb_wbc_uart_reset.v`, the disk path
+`src/sim/tb_pdp_img.v`.
 
 ## License
 
