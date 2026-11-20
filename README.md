@@ -72,7 +72,18 @@ unit beyond the end of the file is "no disk" for the PDP-11 and the board does n
 so an RK or RL set made by hand (`cat` of images) must have all its units. An RP file (up to 8
 RP06 of 174 MB) ends after the last disk given: add `-` for the empty disks you want. An empty RL02
 or RP06 gets the bad block table on its last track, as simh writes it to a new disk: without it
-RT-11 `INIT` stops with `?DUP-F-Bad block in system area`. An RL file is twice the size of its
+RT-11 `INIT` stops with `?DUP-F-Bad block in system area`.
+
+A single disk of a set is taken out or swapped the same way:
+
+```
+python3 disks/tools/mkpack.py extract rl rt11.rl 2 RL2.dsk   # RL2 to a simh image
+python3 disks/tools/mkpack.py replace rk rt11.rk 6 my.dsk    # my.dsk into RK6, the rest unchanged
+python3 disks/tools/mkpack.py replace rk rt11.rk 6 -         # RK6 empty again
+```
+
+`extract` gives the disk as simh keeps it (an RL02 back to 256 byte sectors, 10 MB), so it can be
+used in simh or another set. An RL file is twice the size of its
 images: each 256 byte RL02 sector takes 512 bytes. `mkpack.py ptp` without a file makes a blank
 tape, with a file a tape of its bytes (up to 51200).
 
