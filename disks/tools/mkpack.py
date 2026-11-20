@@ -7,6 +7,10 @@ the SD card of the board in /pdp11 and chosen in OSD > Disks).
   mkpack.py rp  out.rp  RP0.dsk [RP1.dsk | - ...]    RP06: units 0..7, 340670 blocks each
   mkpack.py ptp out.ptp [tape.bin]                   paper tape: a raw tape, or a blank one
 
+  mkpack.py extract rk set.rk 3 RK3.dsk              unit 3 of a set to a simh image
+  mkpack.py replace rk set.rk 3 new.dsk              put an image (or "-": an empty unit) into
+                                                     unit 3 of a set, the other units unchanged
+
 The units of a controller lie back to back in its file, unit n at n * unit size (as sd-store
 wrote them to the SD2 card); "-" leaves a unit empty. RK and RL files always hold all the units of
 the controller (8 RK05, 4 RL02): the ones not given are empty, so the PDP-11 can INIT them (the
@@ -19,6 +23,9 @@ reads zeros there = a bad block 0 and stops with "Bad block in system area". RL0
 of its simh images. The paper tape is
 200 blocks of 16 bit words { 0377, byte } (the format of the PC11 reader / punch of the core: a
 word without 0377 in its high byte is the end of the tape), at most 51200 bytes of tape.
+
+extract writes the unit as simh has it (an RL02 back to 256 byte sectors, 10 MB); replace changes
+only that unit in the file. A unit past the end of an RP file: replace adds empty units up to it.
 """
 import struct
 import sys
@@ -44,6 +51,24 @@ def bad_block_table(nsec, ssize):
     return sector * n + bytes((nsec - n) * ssize)
 
 
+def unit_data(kind, name):
+    """A unit as it lies in the set file: a simh image or "-" (empty)."""
+    usize, nmax, isize, full, bad = UNITS[kind]
+    if name == "-":
+        data = b""
+    else:
+        with open(name, "rb") as g:
+            data = g.read()
+        if len(data) > isize:
+            die("%s: %d bytes, more than a %s unit (%d)" % (name, len(data), kind, isize))
+    if bad and len(data) <= isize - bad[0] * bad[1]:   # no last track
+        data = data.ljust(isize - bad[0] * bad[1], b"\0") + bad_block_table(*bad)
+    data = data.ljust(isize, b"\0")
+    if kind == "rl":   # a 256 byte sector a block
+        data = b"".join(data[i:i + 256] + bytes(256) for i in range(0, len(data), 256))
+    return data.ljust(usize * BLOCK, b"\0")
+
+
 def pack(kind, out, images):
     usize, nmax, isize, full, bad = UNITS[kind]
     if not images or len(images) > nmax:
@@ -52,21 +77,58 @@ def pack(kind, out, images):
         images = images + ["-"] * (nmax - len(images))
     with open(out, "wb") as f:
         for n, name in enumerate(images):
-            if name == "-":
-                data = b""
-            else:
-                with open(name, "rb") as g:
-                    data = g.read()
-                if len(data) > isize:
-                    die("%s: %d bytes, more than a %s unit (%d)" % (name, len(data), kind, isize))
-            if bad and len(data) <= isize - bad[0] * bad[1]:   # no last track
-                data = data.ljust(isize - bad[0] * bad[1], b"\0") + bad_block_table(*bad)
-            data = data.ljust(isize, b"\0")
-            if kind == "rl":   # a 256 byte sector a block
-                data = b"".join(data[i:i + 256] + bytes(256) for i in range(0, len(data), 256))
-            f.write(data.ljust(usize * BLOCK, b"\0"))
+            f.write(unit_data(kind, name))
             print("%s unit %d: %s" % (kind.upper(), n, name if name != "-" else "(empty)"))
     print("%s: %d bytes" % (out, len(images) * usize * BLOCK))
+
+
+def unit_number(kind, text):
+    nmax = UNITS[kind][1]
+    if not text.isdigit() or int(text) >= nmax:
+        die("%s: units 0 to %d, not %s" % (kind, nmax - 1, text))
+    return int(text)
+
+
+def units_in(kind, path):
+    usize = UNITS[kind][0] * BLOCK
+    with open(path, "rb") as f:
+        size = f.seek(0, 2)
+    if size % usize:
+        die("%s: %d bytes, not a whole number of %s units (%d bytes)" % (path, size, kind, usize))
+    return size // usize
+
+
+def extract(kind, path, unit, out):
+    usize, nmax, isize, full, bad = UNITS[kind]
+    n = unit_number(kind, unit)
+    if n >= units_in(kind, path):
+        die("%s: no unit %d (the file holds %d)" % (path, n, units_in(kind, path)))
+    with open(path, "rb") as f:
+        f.seek(n * usize * BLOCK)
+        data = f.read(usize * BLOCK)
+    if kind == "rl":   # back to 256 byte sectors
+        data = b"".join(data[i:i + 256] for i in range(0, len(data), 512))
+    with open(out, "wb") as g:
+        g.write(data[:isize])
+    print("%s unit %d of %s -> %s (%d bytes)" % (kind.upper(), n, path, out, isize))
+
+
+def replace(kind, path, unit, name):
+    usize = UNITS[kind][0] * BLOCK
+    n = unit_number(kind, unit)
+    have = units_in(kind, path)
+    if n >= have and kind != "rp":
+        die("%s: no unit %d (the file holds %d): make the set again with mkpack.py %s"
+            % (path, n, have, kind))
+    data = unit_data(kind, name)
+    with open(path, "r+b") as f:
+        for m in range(have, n):   # RP: empty units up to the new one
+            f.seek(m * usize)
+            f.write(unit_data(kind, "-"))
+            print("%s unit %d: (empty, added)" % (kind.upper(), m))
+        f.seek(n * usize)
+        f.write(data)
+    print("%s unit %d of %s: %s" % (kind.upper(), n, path, name if name != "-" else "(empty)"))
 
 
 def tape(out, src):
@@ -86,7 +148,11 @@ def main(argv):
     if len(argv) < 3:
         sys.exit(__doc__)
     kind, out = argv[1].lower(), argv[2]
-    if kind in UNITS:
+    if kind in ("extract", "replace"):
+        if len(argv) != 6 or argv[2].lower() not in UNITS:
+            sys.exit(__doc__)
+        (extract if kind == "extract" else replace)(argv[2].lower(), *argv[3:])
+    elif kind in UNITS:
         pack(kind, out, argv[3:])
     elif kind == "ptp":
         tape(out, argv[3] if len(argv) > 3 else None)
