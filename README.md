@@ -45,8 +45,8 @@ its disks back to back inside: RK0, RK1, ..., like a stack of disk packs in a ca
 
    | File | Controller | Disks |
    | --- | --- | --- |
-   | `/pdp11/rt11.rk` | RK11 (RK05) | RK0 RT-11 v05.07 (the boot disk), RK1 MACRO-11 examples and tests, RK3 FORTRAN-11, RK4 games, RK5 system tests as paper tape images; RK2 empty |
-   | `/pdp11/rt11.rl` | RL11 (RL02) | RL0 FIG-FORTH for RT-11 and standalone, RL2 the RT-11 sources; RL1 empty |
+   | `/pdp11/rt11.rk` | RK11 (RK05) | RK0 RT-11 v05.07 (the boot disk), RK1 MACRO-11 examples and tests, RK3 FORTRAN-11, RK4 games, RK5 system tests as paper tape images; RK2, RK6, RK7 empty |
+   | `/pdp11/rt11.rl` | RL11 (RL02) | RL0 FIG-FORTH for RT-11 and standalone, RL2 the RT-11 sources; RL1, RL3 empty |
    | `/pdp11/tape.ptp` | PC11 (paper tape) | a blank tape |
 
 The core mounts these files by itself when they are in `/pdp11` under these names. Other files are
@@ -66,8 +66,13 @@ python3 disks/tools/mkpack.py rp my.rp  RP0.dsk
 python3 disks/tools/mkpack.py ptp my.ptp tape.bin
 ```
 
-`-` is an empty disk at that place. A set holds up to 8 RK05 (2.4 MB each), 4 RL02 and 8 RP06. A
-unit beyond the end of the file is "no disk" for the PDP-11. An RL file is twice the size of its
+`-` is an empty disk at that place. An RK or RL file always holds all the disks of its controller
+(8 RK05 of 2.4 MB, 4 RL02): the ones not given are empty and can be initialised (`INIT RK7:`). A
+unit beyond the end of the file is "no disk" for the PDP-11 and the board does not grow the file,
+so an RK or RL set made by hand (`cat` of images) must have all its units. An RP file (up to 8
+RP06 of 174 MB) ends after the last disk given: add `-` for the empty disks you want. An empty RL02
+or RP06 gets the bad block table on its last track, as simh writes it to a new disk: without it
+RT-11 `INIT` stops with `?DUP-F-Bad block in system area`. An RL file is twice the size of its
 images: each 256 byte RL02 sector takes 512 bytes. `mkpack.py ptp` without a file makes a blank
 tape, with a file a tape of its bytes (up to 51200).
 
