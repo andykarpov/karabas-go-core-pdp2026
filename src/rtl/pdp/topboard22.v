@@ -452,7 +452,6 @@ rl11 rldisk(
 
    .start_offset(27'd0),          // karabas: the RL image
 	.slave_sdhc(master_sdhc),
-	.sdcard_init_i(1'b1),          // karabas: the image is served at once (no card init)
 	.img_in(img_ans), .img_out(rl11_img)
 ) ;
 

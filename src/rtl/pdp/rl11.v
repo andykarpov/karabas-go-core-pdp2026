@@ -49,7 +49,6 @@ module rl11(
    input				[26:0]  start_offset,
 	output 			 		  master_sdhc,
 	input				 		  slave_sdhc,
-	input						  sdcard_init_i,   // karabas: 1 (sdspi_img is ready at once)
 	input  [19:0]           img_in,    // karabas: the image bus of sdspi_img (pdp_img)
 	output [36:0]           img_out
 ) ;
@@ -387,10 +386,10 @@ module rl11(
 				
 				case (rl_state)
 					RS_IDLE : begin
-						if (~csr_crdy && sdcard_init_i && (csr_fc == RL_FUNC_READ_DATA || csr_fc == RL_FUNC_READ_DATA_WH || csr_fc == RL_FUNC_WRITE_CHECK)) begin
+						if (~csr_crdy && (csr_fc == RL_FUNC_READ_DATA || csr_fc == RL_FUNC_READ_DATA_WH || csr_fc == RL_FUNC_WRITE_CHECK)) begin
 							{csr_de, csr_nxm, csr_e} <= 5'b0 ;
 							rl_state <= RS_R01 ;
-						end else if (~csr_crdy && sdcard_init_i && csr_fc == RL_FUNC_WRITE_DATA) begin
+						end else if (~csr_crdy && csr_fc == RL_FUNC_WRITE_DATA) begin
 							{csr_de, csr_nxm, csr_e} <= 5'b0 ;
 							rl_state <= RS_W01 ;
 						end
