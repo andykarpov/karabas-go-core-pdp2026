@@ -243,7 +243,11 @@ module rl11(
 			endcase
 			
 			if (rl11_stb) begin
-				if (wb_we_i) begin
+				// karabas: the access once, on the first clock of the strobe: the strobe stays up until the
+				// clock after the ack and the CPU latches the data then, so a repeated MPR read shifted the
+				// header out before it was taken (READ HEADER gave 0, the boot seeked to a wrong cylinder)
+				if (rl11_ack) begin
+				end else if (wb_we_i) begin
 					case (adr_i)
 						CSR_ADR : begin
 							if (wb_sel_i[0]) begin
