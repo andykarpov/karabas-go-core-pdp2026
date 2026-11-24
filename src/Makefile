@@ -17,7 +17,7 @@ JSON = core.json
 
 # map / par options: two PDP-11s fill the LX25 (99 % slices on Mini G), so the options of upstream
 # (cost table 1, -xt 0) with LUT combining for area; cost table 2 (the rule of the cores) hung in par
-MAP_T_go ?= 1
+MAP_T_go ?= 2     # cost table 1: the router hung in phase 4 (26112401)
 MAP_T_mini ?= 3   # cost table 1 missed the timing with the image disks (26111934)
 MAP_T_minig ?= 1
 MAP = -logic_opt off -ol high -xe n -xt 0 -register_duplication off -r 4 -global_opt off -mt 2 -detail -ir off -pr b -lc area -power off

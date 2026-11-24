@@ -1,7 +1,7 @@
 {
     "id": "pdp2026",
     "name": "PDP-11/70",
-    "build": "26112001",
+    "build": "26112401",
     "visible": true,
     "type": "osd",
     "order": 2,
@@ -16,17 +16,17 @@
     "boards": {
         "go": {
             "link": 2,
-            "build": "26112001",
+            "build": "26112401",
             "bitstream": "karabas_go.bin"
         },
         "mini": {
             "link": 2,
-            "build": "26111934",
+            "build": "26112401",
             "bitstream": "karabas_mini.bin"
         },
         "minig": {
             "link": 2,
-            "build": "26111934",
+            "build": "26112401",
             "bitstream": "karabas_minig.bin"
         }
     },
